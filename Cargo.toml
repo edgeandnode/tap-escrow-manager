@@ -1,0 +1,26 @@
+[package]
+name = "gw-escrow-manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-primitives = { version = "0.4.2", features = ["serde"] }
+anyhow = "1.0.75"
+axum = { version = "0.6.20", features = ["tracing"] }
+eventuals = "0.6.7"
+prost = "0.12.1"
+rdkafka = { version = "0.34.0", features = [
+  "cmake-build",
+  "gssapi",
+  "tracing",
+] }
+serde = { version = "1.0.190", features = ["derive"] }
+serde_json = "1.0.108"
+tokio = { version = "1.32.0", default-features = false, features = [
+  "macros",
+  "rt-multi-thread",
+  "time",
+  "tracing",
+] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.17"
