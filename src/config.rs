@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref};
+use std::{fmt, ops::Deref, path::PathBuf};
 
 use serde::Deserialize;
 
@@ -9,6 +9,7 @@ pub struct Config {
 
 #[derive(Debug, Deserialize)]
 pub struct Kafka {
+    pub checkpoint_file: PathBuf,
     pub bootstrap_servers: Hidden<String>,
     pub ca_location: String,
     pub sasl_username: String,
