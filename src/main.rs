@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     let debts = track_receipts(&config.kafka)
         .await
         .context("failed to start kafka client")?;
-    println!("{:#?}", debts.value().await);
+    println!("{:#?}", debts.value().await.unwrap().as_ref());
 
     Ok(())
 }

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fs::File;
 use std::{path::PathBuf, time::Duration};
 
 use alloy_primitives::Address;
@@ -19,7 +20,7 @@ pub async fn track_receipts(
 ) -> anyhow::Result<Eventual<Ptr<HashMap<Address, u128>>>> {
     let db = DB::new(config.checkpoint_file.clone()).context("failed to init DB")?;
 
-    // TODO: move partition 0 cursor to db.last_flush
+    // TODO: move partition 0 cursor to db.last_flush or 28 days ago
 
     let mut consumer: StreamConsumer = rdkafka::ClientConfig::new()
         .set("group.id", "gw-escrow-manager")
@@ -55,19 +56,31 @@ async fn process_messages(
                 continue;
             }
         };
+        let payload = match msg.payload() {
+            Some(payload) => payload,
+            None => continue,
+        };
 
-        // TODO: deserialize msg, update in-memory DB record
+        #[derive(Deserialize)]
+        struct Payload {
+            #[serde(with = "ts_milliseconds")]
+            timestamp: DateTime<Utc>,
+            indexer: Address,
+            fee: f64,
+        }
+        let payload: Payload = serde_json::from_reader(payload)?;
+        db.update(
+            payload.indexer,
+            payload.timestamp,
+            (payload.fee * 1e18) as u128,
+        );
 
         let now = Instant::now();
         if now.saturating_duration_since(last_report) > Duration::from_secs(2 /* TODO: 30s */) {
-            if let Some(timestamp) = msg.timestamp().to_millis() {
-                last_report = now;
-                tracing::info!(timestamp, "checkpoint");
-                db.flush()?;
-                tx.write(Ptr::new(
-                    db.data.values().map(|r| (r.indexer, r.fees_grt)).collect(),
-                ));
-            }
+            last_report = now;
+            tracing::info!(timestamp = %payload.timestamp, "checkpoint");
+            db.flush()?;
+            tx.write(Ptr::new(db.total_fees()));
         }
 
         break;
@@ -76,7 +89,8 @@ async fn process_messages(
 }
 
 struct DB {
-    data: BTreeMap<Address, Record>,
+    /// indexer -> (date -> total_fees)
+    data: BTreeMap<Address, Vec<(DateTime<Utc>, u128)>>,
     file: PathBuf,
     last_flush: DateTime<Utc>,
 }
@@ -86,11 +100,12 @@ struct Record {
     #[serde(with = "ts_milliseconds")]
     timestamp: DateTime<Utc>,
     indexer: Address,
-    fees_grt: u128,
+    fees: u128,
 }
 
 impl DB {
     fn new(file: PathBuf) -> anyhow::Result<Self> {
+        let _ = File::options().create_new(true).write(true).open(&file);
         let mut reader = csv::Reader::from_path(&file)?;
         let records: Vec<Record> = reader.deserialize().collect::<Result<_, _>>()?;
         let last_flush = records
@@ -98,23 +113,55 @@ impl DB {
             .map(|r| r.timestamp)
             .max()
             .unwrap_or_default();
-        let data = records.into_iter().map(|r| (r.indexer, r)).collect();
-        Ok(Self {
-            data,
+        let mut this = Self {
+            data: Default::default(),
             file,
             last_flush,
-        })
+        };
+        for record in records {
+            this.update(record.indexer, record.timestamp, record.fees);
+        }
+        Ok(this)
     }
 
     fn flush(&mut self) -> anyhow::Result<()> {
         let mut writer = csv::Writer::from_path(&self.file)?;
-        let now = Utc::now();
-        for (_, record) in &mut self.data {
-            record.timestamp = now;
-            writer.serialize(record)?;
+        for (indexer, daily_fees) in &self.data {
+            for (timestamp, fees) in daily_fees {
+                writer.serialize(Record {
+                    timestamp: timestamp.clone(),
+                    indexer: indexer.clone(),
+                    fees: *fees,
+                })?;
+            }
         }
         writer.flush()?;
-        self.last_flush = now;
+        self.last_flush = Utc::now();
         Ok(())
+    }
+
+    fn update(&mut self, indexer: Address, timestamp: DateTime<Utc>, fees: u128) {
+        let daily_fees = self.data.entry(indexer).or_default();
+        let index = daily_fees
+            .iter_mut()
+            .position(|(t, _)| t.date_naive() == timestamp.date_naive());
+        match index {
+            None => {
+                daily_fees.push((timestamp, fees));
+            }
+            Some(index) => {
+                daily_fees[index] = (timestamp, daily_fees[index].1 + fees);
+            }
+        }
+    }
+
+    fn total_fees(&self) -> HashMap<Address, u128> {
+        self.data
+            .iter()
+            .map(|(indexer, daily_fees)| {
+                let total_fees = daily_fees.iter().map(|(_, fees)| fees).sum();
+                (indexer.clone(), total_fees)
+            })
+            .collect()
     }
 }
