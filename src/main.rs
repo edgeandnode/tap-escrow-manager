@@ -6,14 +6,17 @@ use config::Config;
 use crate::receipts::track_receipts;
 
 mod config;
+mod network_subgraph;
 mod receipts;
+
+#[global_allocator]
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let config_file = env::args()
-        .into_iter()
         .nth(1)
         .ok_or_else(|| anyhow!("missing config file argument"))?;
     let config: Config =
@@ -23,7 +26,12 @@ async fn main() -> anyhow::Result<()> {
     let debts = track_receipts(&config.kafka)
         .await
         .context("failed to start kafka client")?;
-    println!("{:#?}", debts.value().await.unwrap().as_ref());
+
+    let indexers = network_subgraph::active_indexers(
+        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum".to_string(),
+    );
+
+    tracing::warn!("{:#?}", indexers.value().await.unwrap().as_ref());
 
     loop {
         tokio::time::sleep(Duration::from_secs(20)).await;

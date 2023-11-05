@@ -69,6 +69,7 @@ async fn process_messages(
     mut db: DB,
     mut tx: EventualWriter<Ptr<HashMap<Address, u128>>>,
 ) -> anyhow::Result<()> {
+    let mut rate_count: u64 = 0;
     loop {
         let msg = match consumer.recv().await {
             Ok(msg) => msg,
@@ -81,6 +82,7 @@ async fn process_messages(
             Some(payload) => payload,
             None => continue,
         };
+        rate_count += 1;
 
         #[derive(Deserialize)]
         struct Payload {
@@ -93,8 +95,10 @@ async fn process_messages(
         let fees = (payload.fee * 1e18) as u128;
         db.update(payload.indexer, payload.timestamp, fees);
 
-        if Utc::now().signed_duration_since(db.last_flush) > Duration::seconds(10) {
-            tracing::info!(timestamp = ?payload.timestamp, "checkpoint");
+        if Utc::now().signed_duration_since(db.last_flush) > Duration::seconds(30) {
+            let msg_hz = rate_count / 30;
+            rate_count = 0;
+            tracing::info!(timestamp = ?payload.timestamp, msg_hz, "checkpoint");
             db.flush()?;
             tx.write(Ptr::new(db.total_fees()));
         }
