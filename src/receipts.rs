@@ -1,26 +1,28 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use alloy_primitives::Address;
 use anyhow::Context as _;
+use chrono::Duration;
 use chrono::{serde::ts_milliseconds, DateTime, Utc};
 use eventuals::{Eventual, EventualWriter, Ptr};
+use rdkafka::TopicPartitionList;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     Message,
 };
 use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
 
 use crate::config;
 
 pub async fn track_receipts(
     config: &config::Kafka,
 ) -> anyhow::Result<Eventual<Ptr<HashMap<Address, u128>>>> {
-    let db = DB::new(config.checkpoint_file.clone()).context("failed to init DB")?;
-
-    // TODO: move partition 0 cursor to db.last_flush or 28 days ago
+    let window = Duration::days(28);
+    let db = DB::new(config.checkpoint_file.clone(), window).context("failed to init DB")?;
+    let latest_timestamp = db.last_flush;
+    tracing::debug!(?latest_timestamp);
 
     let mut consumer: StreamConsumer = rdkafka::ClientConfig::new()
         .set("group.id", "gw-escrow-manager")
@@ -30,8 +32,28 @@ pub async fn track_receipts(
         .set("sasl.username", config.sasl_username.clone())
         .set("sasl.password", config.sasl_password.clone())
         .set("ssl.ca.location", config.ca_location.clone())
+        .set("enable.auto.commit", "true")
+        .set("auto.offset.reset", "earliest")
         .create()?;
     consumer.subscribe(&[&config.topic])?;
+
+    let timeout = std::time::Duration::from_secs(10);
+    let partitions = consumer
+        .fetch_metadata(Some(&config.topic), timeout)?
+        .topics()[0]
+        .partitions()
+        .len();
+    let mut assignment = TopicPartitionList::new();
+    for partition in 0..partitions {
+        assignment.add_partition(&config.topic, partition as i32);
+    }
+    consumer.assign(&assignment)?;
+    let posisitons =
+        consumer.offsets_for_timestamp(latest_timestamp.timestamp_millis(), timeout)?;
+    for position in posisitons.elements() {
+        assignment.set_partition_offset(&config.topic, position.partition(), position.offset())?;
+    }
+    consumer.seek_partitions(assignment, timeout)?;
 
     let (tx, rx) = Eventual::new();
     tokio::spawn(async move {
@@ -47,7 +69,6 @@ async fn process_messages(
     mut db: DB,
     mut tx: EventualWriter<Ptr<HashMap<Address, u128>>>,
 ) -> anyhow::Result<()> {
-    let mut last_report = Instant::now();
     loop {
         let msg = match consumer.recv().await {
             Ok(msg) => msg,
@@ -69,53 +90,50 @@ async fn process_messages(
             fee: f64,
         }
         let payload: Payload = serde_json::from_reader(payload)?;
-        db.update(
-            payload.indexer,
-            payload.timestamp,
-            (payload.fee * 1e18) as u128,
-        );
+        let fees = (payload.fee * 1e18) as u128;
+        db.update(payload.indexer, payload.timestamp, fees);
 
-        let now = Instant::now();
-        if now.saturating_duration_since(last_report) > Duration::from_secs(2 /* TODO: 30s */) {
-            last_report = now;
-            tracing::info!(timestamp = %payload.timestamp, "checkpoint");
+        if Utc::now().signed_duration_since(db.last_flush) > Duration::seconds(10) {
+            tracing::info!(timestamp = ?payload.timestamp, "checkpoint");
             db.flush()?;
             tx.write(Ptr::new(db.total_fees()));
         }
-
-        break;
     }
-    anyhow::bail!("TODO");
 }
 
 struct DB {
     /// indexer -> (date -> total_fees)
     data: BTreeMap<Address, Vec<(DateTime<Utc>, u128)>>,
     file: PathBuf,
+    window: Duration,
     last_flush: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Record {
-    #[serde(with = "ts_milliseconds")]
     timestamp: DateTime<Utc>,
     indexer: Address,
     fees: u128,
 }
 
 impl DB {
-    fn new(file: PathBuf) -> anyhow::Result<Self> {
+    fn new(file: PathBuf, window: Duration) -> anyhow::Result<Self> {
         let _ = File::options().create_new(true).write(true).open(&file);
         let mut reader = csv::Reader::from_path(&file)?;
-        let records: Vec<Record> = reader.deserialize().collect::<Result<_, _>>()?;
-        let last_flush = records
-            .iter()
-            .map(|r| r.timestamp)
-            .max()
-            .unwrap_or_default();
+        let start = Utc::now() - window;
+        let records: Vec<Record> = reader
+            .deserialize()
+            .filter(|r| {
+                r.as_ref()
+                    .map(|r: &Record| r.timestamp >= start)
+                    .unwrap_or(true)
+            })
+            .collect::<Result<_, _>>()?;
+        let last_flush = records.iter().map(|r| r.timestamp).max().unwrap_or(start);
         let mut this = Self {
             data: Default::default(),
             file,
+            window,
             last_flush,
         };
         for record in records {
@@ -127,11 +145,13 @@ impl DB {
     fn flush(&mut self) -> anyhow::Result<()> {
         let mut writer = csv::Writer::from_path(&self.file)?;
         for (indexer, daily_fees) in &self.data {
+            let mut daily_fees = daily_fees.clone();
+            daily_fees.sort_by_key(|(t, _)| t.clone());
             for (timestamp, fees) in daily_fees {
                 writer.serialize(Record {
                     timestamp: timestamp.clone(),
                     indexer: indexer.clone(),
-                    fees: *fees,
+                    fees,
                 })?;
             }
         }
@@ -141,6 +161,9 @@ impl DB {
     }
 
     fn update(&mut self, indexer: Address, timestamp: DateTime<Utc>, fees: u128) {
+        if timestamp < (Utc::now() - self.window) {
+            return;
+        }
         let daily_fees = self.data.entry(indexer).or_default();
         let index = daily_fees
             .iter_mut()

@@ -1,4 +1,4 @@
-use std::{env, fs};
+use std::{env, fs, time::Duration};
 
 use anyhow::{anyhow, Context as _};
 use config::Config;
@@ -25,5 +25,7 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to start kafka client")?;
     println!("{:#?}", debts.value().await.unwrap().as_ref());
 
-    Ok(())
+    loop {
+        tokio::time::sleep(Duration::from_secs(20)).await;
+    }
 }
