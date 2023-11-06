@@ -148,13 +148,18 @@ impl DB {
 
     fn flush(&mut self) -> anyhow::Result<()> {
         let mut writer = csv::Writer::from_path(&self.file)?;
-        for (indexer, daily_fees) in &self.data {
+        let now = Utc::now();
+        for (indexer, daily_fees) in &mut self.data {
+            // prune old entries
+            daily_fees.retain(|(t, _)| t >= &(now - self.window));
+            // copy & sort for easier debugging
             let mut daily_fees = daily_fees.clone();
-            daily_fees.sort_by_key(|(t, _)| t.clone());
+            daily_fees.sort_by_key(|(t, _)| *t);
+
             for (timestamp, fees) in daily_fees {
                 writer.serialize(Record {
-                    timestamp: timestamp.clone(),
-                    indexer: indexer.clone(),
+                    timestamp,
+                    indexer: *indexer,
                     fees,
                 })?;
             }
@@ -187,7 +192,7 @@ impl DB {
             .iter()
             .map(|(indexer, daily_fees)| {
                 let total_fees = daily_fees.iter().map(|(_, fees)| fees).sum();
-                (indexer.clone(), total_fees)
+                (*indexer, total_fees)
             })
             .collect()
     }
