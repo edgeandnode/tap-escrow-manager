@@ -4,6 +4,9 @@ use std::{env, fs, time::Duration};
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context as _};
 use config::Config;
+use ethers::middleware::contract::abigen;
+use ethers::prelude::{Http, Provider};
+use ethers::signers::{LocalWallet, Signer as _};
 use eventuals::{Eventual, EventualExt, Ptr};
 use serde::Deserialize;
 use toolshed::url::Url;
@@ -17,6 +20,8 @@ mod subgraph;
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
+abigen!(Escrow, "src/abi/Escrow.abi.json");
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -24,9 +29,16 @@ async fn main() -> anyhow::Result<()> {
     let config_file = env::args()
         .nth(1)
         .ok_or_else(|| anyhow!("missing config file argument"))?;
-    let config: Config =
-        serde_json::from_str(&fs::read_to_string(config_file).context("failed to load config")?)?;
+    let config: Config = fs::read_to_string(config_file)
+        .map_err(anyhow::Error::from)
+        .and_then(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
+        .context("failed to load config")?;
     tracing::info!("{config:#?}");
+
+    let provider = Provider::<Http>::try_from(config.provider.as_str())?;
+    let wallet =
+        LocalWallet::from_bytes(config.secret_key.as_slice())?.with_chain_id(config.chain_id);
+    tracing::info!(sender_address = %wallet.address());
 
     let debts = track_receipts(&config.kafka)
         .await
@@ -47,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     tracing::warn!(active_indexers = active_indexers.value().await.unwrap().len());
-    tracing::warn!(escrow_accounts = ?escrow_accounts.value().await.unwrap().as_ref());
+    tracing::warn!(escrow_accounts = escrow_accounts.value().await.unwrap().len());
 
     loop {
         tokio::time::sleep(Duration::from_secs(20)).await;
