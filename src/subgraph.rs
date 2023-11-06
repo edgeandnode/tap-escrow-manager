@@ -24,8 +24,7 @@ where
                 match guard.1.paginated_query::<T>(&query).await {
                     Ok(response) => guard.0.write(Ptr::new(response)),
                     Err(subgraph_poll_err) => {
-                        tracing::error!(%subgraph_poll_err);
-                        return;
+                        tracing::error!(%subgraph_poll_err, t = std::any::type_name::<T>());
                     }
                 };
             }
