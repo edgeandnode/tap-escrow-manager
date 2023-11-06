@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::{env, fs, time::Duration};
 
 use alloy_primitives::Address;
 use anyhow::{anyhow, Context as _};
 use config::Config;
 use ethers::middleware::contract::abigen;
-use ethers::prelude::{Http, Provider};
+use ethers::prelude::{Http, Provider, SignerMiddleware};
 use ethers::signers::{LocalWallet, Signer as _};
 use eventuals::{Eventual, EventualExt, Ptr};
 use serde::Deserialize;
@@ -35,10 +36,23 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to load config")?;
     tracing::info!("{config:#?}");
 
-    let provider = Provider::<Http>::try_from(config.provider.as_str())?;
     let wallet =
         LocalWallet::from_bytes(config.secret_key.as_slice())?.with_chain_id(config.chain_id);
-    tracing::info!(sender_address = %wallet.address());
+    let sender_address = wallet.address();
+    tracing::info!(%sender_address);
+    let http_client = reqwest::ClientBuilder::new()
+        .tcp_nodelay(true)
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let provider = Provider::new(Http::new_with_client(
+        config.provider.0.clone(),
+        http_client,
+    ));
+    let provider = Arc::new(SignerMiddleware::new(provider, wallet));
+    let contract = Escrow::new(
+        ethers::abi::Address::from(config.escrow_contract.0 .0),
+        provider.clone(),
+    );
 
     let debts = track_receipts(&config.kafka)
         .await
@@ -47,22 +61,78 @@ async fn main() -> anyhow::Result<()> {
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    let active_indexers = active_indexers(
-        http_client.clone(),
-        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum".parse()?,
-    );
+    let active_indexers = active_indexers(http_client.clone(), config.network_subgraph);
     let escrow_accounts = escrow_accounts(
         http_client,
-        "https://api.studio.thegraph.com/proxy/53925/arb-goerli-tap-subgraph/version/latest"
-            .parse()?,
-        "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e".parse()?,
+        config.escrow_subgraph,
+        Address::from(sender_address.0),
     );
 
-    tracing::warn!(active_indexers = active_indexers.value().await.unwrap().len());
-    tracing::warn!(escrow_accounts = escrow_accounts.value().await.unwrap().len());
+    tracing::info!(active_indexers = active_indexers.value().await.unwrap().len());
+    tracing::info!(escrow_accounts = escrow_accounts.value().await.unwrap().len());
 
     loop {
-        tokio::time::sleep(Duration::from_secs(20)).await;
+        let grt = 1_000_000_000_000_000_000_u128;
+        let min_deposit = 16 * grt;
+        let max_deposit = 10_000 * grt;
+
+        let debts = debts.value_immediate().unwrap_or_default();
+        let escrow_accounts = escrow_accounts.value().await.unwrap();
+        let mut receivers = active_indexers.value().await.unwrap().as_ref().clone();
+        receivers.extend(escrow_accounts.keys());
+        let adjustments: Vec<(Address, u128)> = receivers
+            .into_iter()
+            .filter_map(|receiver| {
+                let balance = escrow_accounts.get(&receiver).cloned().unwrap_or(0);
+                let debt = debts.get(&receiver).cloned().unwrap_or(0);
+                if balance == 0 {
+                    let mut next_balance = min_deposit;
+                    while next_balance <= (debt * 2) {
+                        next_balance *= 2;
+                    }
+                    tracing::info!(
+                        ?receiver,
+                        balance_grt = (balance as f64) / (grt as f64),
+                        debt_grt = (debt as f64) / (grt as f64),
+                        adjustment_grt = (next_balance as f64) / (grt as f64),
+                    );
+                    return Some((receiver, next_balance));
+                }
+                let next_balance = (balance + 1).next_power_of_two();
+                let utilization =
+                    (debt as f64 / grt as f64) / (balance as f64 / grt as f64).max(1.0);
+                if (utilization < 0.6) || (next_balance > max_deposit) {
+                    return None;
+                }
+                let next_balance = next_balance.max(min_deposit);
+                let adjustment = next_balance - balance;
+                tracing::info!(
+                    ?receiver,
+                    balance_grt = (balance as f64) / (grt as f64),
+                    debt_grt = (debt as f64) / (grt as f64),
+                    adjustment_grt = (adjustment as f64) / (grt as f64),
+                );
+                Some((receiver, adjustment))
+            })
+            .collect();
+        let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
+        tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
+
+        // TODO: call contract depositMany/assignDepositMany instead
+        // let receivers: Vec<Address> = adjustments.iter().map(|(r, _)| *r).collect();
+        // let amounts: Vec<u128> = adjustments.iter().map(|(_, a)| *a).collect();
+        for (receiver, amount) in adjustments {
+            let tx = contract.deposit(ethers::abi::Address::from(receiver.0 .0), amount.into());
+            let result = tx.send().await;
+            if let Err(contract_call_err) = result {
+                let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
+                tracing::error!(%contract_call_err, ?revert);
+                break;
+            }
+        }
+        tracing::info!("adjustments complete");
+
+        tokio::time::sleep(Duration::from_secs(60 * 10)).await;
     }
 }
 

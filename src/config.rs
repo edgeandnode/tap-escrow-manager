@@ -1,6 +1,6 @@
 use std::{fmt, ops::Deref, path::PathBuf, str::FromStr};
 
-use alloy_primitives::B256;
+use alloy_primitives::{Address, B256};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use toolshed::url::Url;
@@ -9,7 +9,12 @@ use toolshed::url::Url;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub chain_id: u64,
+    pub escrow_contract: Address,
+    #[serde_as(as = "DisplayFromStr")]
+    pub escrow_subgraph: Url,
     pub kafka: Kafka,
+    #[serde_as(as = "DisplayFromStr")]
+    pub network_subgraph: Url,
     #[serde_as(as = "DisplayFromStr")]
     pub provider: Hidden<Url>,
     pub secret_key: Hidden<B256>,
