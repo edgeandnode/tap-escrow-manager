@@ -24,7 +24,7 @@ where
                 match guard.1.paginated_query::<T>(&query).await {
                     Ok(response) => guard.0.write(Ptr::new(response)),
                     Err(subgraph_poll_err) => {
-                        tracing::error!(%subgraph_poll_err, t = std::any::type_name::<T>());
+                        tracing::error!(%subgraph_poll_err, label = %std::any::type_name::<T>());
                     }
                 };
             }
@@ -62,23 +62,6 @@ impl Client {
         let mut last_id = "".to_string();
         let mut query_block: Option<BlockPointer> = None;
         let mut results = Vec::new();
-        // graph-node is rejecting values of `number_gte:0` on subgraphs with a larger `startBlock`
-        // TODO: delete when resolved
-        if self.latest_block == 0 {
-            #[derive(Deserialize)]
-            struct InitResponse {
-                meta: Meta,
-            }
-            let init = graphql_query::<InitResponse>(
-                &self.http_client,
-                self.subgraph_endpoint.clone(),
-                &json!({"query": "{ meta: _meta { block { number hash } } }"}),
-                self.ticket.as_deref(),
-            )
-            .await?
-            .unpack()?;
-            self.latest_block = init.meta.block.number;
-        }
         loop {
             let block = query_block
                 .as_ref()

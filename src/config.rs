@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref, path::PathBuf, str::FromStr};
+use std::{collections::BTreeMap, fmt, ops::Deref, path::PathBuf, str::FromStr};
 
 use alloy_primitives::{Address, B256};
 use serde::Deserialize;
@@ -23,10 +23,7 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct Kafka {
     pub checkpoint_file: PathBuf,
-    pub bootstrap_servers: Hidden<String>,
-    pub ca_location: String,
-    pub sasl_username: String,
-    pub sasl_password: Hidden<String>,
+    pub config: Hidden<BTreeMap<String, String>>,
     pub topic: String,
 }
 

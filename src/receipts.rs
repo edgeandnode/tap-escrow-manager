@@ -24,17 +24,19 @@ pub async fn track_receipts(
     let latest_timestamp = db.last_flush;
     tracing::debug!(?latest_timestamp);
 
-    let mut consumer: StreamConsumer = rdkafka::ClientConfig::new()
-        .set("group.id", "gw-escrow-manager")
-        .set("bootstrap.servers", config.bootstrap_servers.clone())
-        .set("security.protocol", "sasl_ssl")
-        .set("sasl.mechanism", "SCRAM-SHA-256")
-        .set("sasl.username", config.sasl_username.clone())
-        .set("sasl.password", config.sasl_password.clone())
-        .set("ssl.ca.location", config.ca_location.clone())
-        .set("enable.auto.commit", "true")
-        .set("auto.offset.reset", "earliest")
-        .create()?;
+    let mut client_config = rdkafka::ClientConfig::new();
+    client_config.extend(config.config.clone().into_iter());
+    let defaults = [
+        ("group.id", "gw-escrow-manager"),
+        ("enable.auto.commit", "true"),
+        ("auto.offset.reset", "earliest"),
+    ];
+    for (key, value) in defaults {
+        if !client_config.config_map().contains_key(key) {
+            client_config.set(key, value);
+        }
+    }
+    let mut consumer: StreamConsumer = client_config.create()?;
     consumer.subscribe(&[&config.topic])?;
 
     let timeout = std::time::Duration::from_secs(10);
