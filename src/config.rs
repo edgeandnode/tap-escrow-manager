@@ -16,14 +16,14 @@ pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
     #[serde_as(as = "DisplayFromStr")]
-    pub provider: Hidden<Url>,
+    pub rpc_url: Hidden<Url>,
     pub secret_key: Hidden<B256>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Kafka {
-    pub checkpoint_file: PathBuf,
     pub config: Hidden<BTreeMap<String, String>>,
+    pub csv_cache: PathBuf,
     pub topic: String,
 }
 

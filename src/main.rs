@@ -44,10 +44,7 @@ async fn main() -> anyhow::Result<()> {
         .tcp_nodelay(true)
         .timeout(Duration::from_secs(10))
         .build()?;
-    let provider = Provider::new(Http::new_with_client(
-        config.provider.0.clone(),
-        http_client,
-    ));
+    let provider = Provider::new(Http::new_with_client(config.rpc_url.0.clone(), http_client));
     let provider = Arc::new(SignerMiddleware::new(provider, wallet));
     let contract = Escrow::new(
         ethers::abi::Address::from(config.escrow_contract.0 .0),

@@ -20,7 +20,7 @@ pub async fn track_receipts(
     config: &config::Kafka,
 ) -> anyhow::Result<Eventual<Ptr<HashMap<Address, u128>>>> {
     let window = Duration::days(28);
-    let db = DB::new(config.checkpoint_file.clone(), window).context("failed to init DB")?;
+    let db = DB::new(config.csv_cache.clone(), window).context("failed to init DB")?;
     let latest_timestamp = db.last_flush;
     tracing::debug!(?latest_timestamp);
 
@@ -100,7 +100,7 @@ async fn process_messages(
         if Utc::now().signed_duration_since(db.last_flush) > Duration::seconds(30) {
             let msg_hz = rate_count / 30;
             rate_count = 0;
-            tracing::info!(timestamp = ?payload.timestamp, msg_hz, "checkpoint");
+            tracing::info!(timestamp = ?payload.timestamp, msg_hz, "flush");
             db.flush()?;
             tx.write(Ptr::new(db.total_fees()));
         }
