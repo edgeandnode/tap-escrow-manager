@@ -146,7 +146,7 @@ pub fn active_indexers(
             first: $first
             where: {
                 id_gt: $last
-                allocatedTokens_gt: 0
+                allocationCount_gt: 0
             }
         ) {
             id
