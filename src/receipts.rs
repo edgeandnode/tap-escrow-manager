@@ -92,8 +92,14 @@ async fn process_messages(
             timestamp: DateTime<Utc>,
             indexer: Address,
             fee: f64,
+            #[serde(default)]
+            legacy_scalar: bool,
         }
         let payload: Payload = serde_json::from_reader(payload)?;
+        if payload.legacy_scalar {
+            continue;
+        }
+
         let fees = (payload.fee * 1e18) as u128;
         db.update(payload.indexer, payload.timestamp, fees);
 
