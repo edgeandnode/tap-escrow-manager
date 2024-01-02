@@ -8,6 +8,7 @@ use config::Config;
 use ethers::middleware::contract::abigen;
 use ethers::prelude::{Http, Provider, SignerMiddleware};
 use ethers::signers::{LocalWallet, Signer as _};
+use ethers::types::U256;
 use eventuals::{Eventual, EventualExt, Ptr};
 use serde::Deserialize;
 use toolshed::url::Url;
@@ -115,17 +116,18 @@ async fn main() -> anyhow::Result<()> {
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
 
-        // TODO: call contract depositMany/assignDepositMany instead
-        // let receivers: Vec<Address> = adjustments.iter().map(|(r, _)| *r).collect();
-        // let amounts: Vec<u128> = adjustments.iter().map(|(_, a)| *a).collect();
-        for (receiver, amount) in adjustments {
-            let tx = contract.deposit(ethers::abi::Address::from(receiver.0 .0), amount.into());
-            let result = tx.send().await;
-            if let Err(contract_call_err) = result {
-                let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
-                tracing::error!(%contract_call_err, ?revert);
-                break;
-            }
+        let receivers: Vec<ethers::abi::Address> = adjustments
+            .iter()
+            .map(|(r, _)| ethers::abi::Address::from(r.0 .0))
+            .collect();
+        let amounts: Vec<ethers::types::U256> =
+            adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
+        let tx = contract.deposit_many(receivers, amounts);
+        let result = tx.send().await;
+        if let Err(contract_call_err) = result {
+            let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
+            tracing::error!(%contract_call_err, ?revert);
+            continue;
         }
         tracing::info!("adjustments complete");
 
