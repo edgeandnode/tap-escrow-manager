@@ -11,13 +11,14 @@ use ethers::signers::{LocalWallet, Signer as _};
 use ethers::types::U256;
 use eventuals::{Eventual, EventualExt, Ptr};
 use serde::Deserialize;
+use thegraph::client::Client as SubgraphClient;
+use tokio::sync::Mutex;
 use toolshed::url::Url;
 
-use crate::{receipts::track_receipts, subgraph::spawn_poller};
+use crate::receipts::track_receipts;
 
 mod config;
 mod receipts;
-mod subgraph;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -127,10 +128,11 @@ async fn main() -> anyhow::Result<()> {
         if let Err(contract_call_err) = result {
             let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
             tracing::error!(%contract_call_err, ?revert);
+            tokio::time::sleep(Duration::from_secs(30)).await;
             continue;
         }
-        tracing::info!("adjustments complete");
 
+        tracing::info!("adjustments complete");
         tokio::time::sleep(Duration::from_secs(60 * 10)).await;
     }
 }
@@ -139,7 +141,7 @@ pub fn active_indexers(
     http_client: reqwest::Client,
     subgraph_endpoint: Url,
 ) -> Eventual<Ptr<HashSet<Address>>> {
-    let client = subgraph::Client::new(http_client, subgraph_endpoint, None);
+    let client = SubgraphClient::new(http_client, subgraph_endpoint);
     let query = r#"
         indexers(
             block: $block
@@ -167,7 +169,7 @@ pub fn escrow_accounts(
     subgraph_endpoint: Url,
     sender: Address,
 ) -> Eventual<Ptr<HashMap<Address, u128>>> {
-    let client = subgraph::Client::new(http_client, subgraph_endpoint, None);
+    let client = SubgraphClient::new(http_client, subgraph_endpoint);
     let query = format!(
         r#"
         escrowAccounts(
@@ -207,4 +209,28 @@ pub fn escrow_accounts(
             .collect();
         Ptr::new(entries)
     })
+}
+
+fn spawn_poller<T>(client: SubgraphClient, query: String) -> Eventual<Ptr<Vec<T>>>
+where
+    T: for<'de> Deserialize<'de> + Send + 'static,
+    Ptr<Vec<T>>: Send,
+{
+    let (writer, reader) = Eventual::new();
+    let state: &'static Mutex<_> = Box::leak(Box::new(Mutex::new((writer, client))));
+    eventuals::timer(Duration::from_secs(120))
+        .pipe_async(move |_| {
+            let query = query.clone();
+            async move {
+                let mut guard = state.lock().await;
+                match guard.1.paginated_query::<T>(query).await {
+                    Ok(response) => guard.0.write(Ptr::new(response)),
+                    Err(subgraph_poll_err) => {
+                        tracing::error!(%subgraph_poll_err, label = %std::any::type_name::<T>());
+                    }
+                };
+            }
+        })
+        .forever();
+    reader
 }
