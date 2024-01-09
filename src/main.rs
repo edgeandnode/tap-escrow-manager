@@ -128,10 +128,11 @@ async fn main() -> anyhow::Result<()> {
         if let Err(contract_call_err) = result {
             let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
             tracing::error!(%contract_call_err, ?revert);
+            tokio::time::sleep(Duration::from_secs(30)).await;
             continue;
         }
-        tracing::info!("adjustments complete");
 
+        tracing::info!("adjustments complete");
         tokio::time::sleep(Duration::from_secs(60 * 10)).await;
     }
 }
