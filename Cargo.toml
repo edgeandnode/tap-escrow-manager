@@ -1,5 +1,5 @@
 [package]
-name = "gw-escrow-manager"
+name = "tap-escrow-manager"
 version = "0.1.0"
 edition = "2021"
 

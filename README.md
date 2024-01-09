@@ -1,4 +1,4 @@
-# gw-escrow-manager
+# tap-escrow-manager
 
 This service maintains TAP escrow balances on behalf of a gateway sender.
 
@@ -17,4 +17,4 @@ Configuration options are set via a single JSON file. The structure of the file 
 
 Log levels are controlled by the `RUST_LOG` environment variable ([details](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)).
 
-example: `RUST_LOG=info,gw_escrow_manager=debug cargo run config.json`
+example: `RUST_LOG=info,tap_escrow_manager=debug cargo run -- config.json`
