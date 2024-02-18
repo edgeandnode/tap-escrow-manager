@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::path::PathBuf;
 
-use alloy_primitives::Address;
 use anyhow::Context as _;
 use chrono::Duration;
 use chrono::{serde::ts_milliseconds, DateTime, Utc};
@@ -13,6 +12,7 @@ use rdkafka::{
     Message,
 };
 use serde::{Deserialize, Serialize};
+use thegraph::types::Address;
 
 use crate::config;
 

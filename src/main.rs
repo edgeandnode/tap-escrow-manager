@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::{env, fs, time::Duration};
 
-use alloy_primitives::Address;
 use anyhow::{anyhow, Context as _};
 use config::Config;
 use ethers::middleware::contract::abigen;
@@ -12,6 +11,7 @@ use ethers::types::U256;
 use eventuals::{Eventual, EventualExt, Ptr};
 use serde::Deserialize;
 use thegraph::client::Client as SubgraphClient;
+use thegraph::types::Address;
 use tokio::sync::Mutex;
 use toolshed::url::Url;
 
