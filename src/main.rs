@@ -116,22 +116,22 @@ async fn main() -> anyhow::Result<()> {
             .collect();
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
-
-        let receivers: Vec<ethers::abi::Address> = adjustments
-            .iter()
-            .map(|(r, _)| ethers::abi::Address::from(r.0 .0))
-            .collect();
-        let amounts: Vec<ethers::types::U256> =
-            adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
-        let tx = contract.deposit_many(receivers, amounts);
-        let result = tx.send().await;
-        if let Err(contract_call_err) = result {
-            let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
-            tracing::error!(%contract_call_err, ?revert);
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            continue;
+        if total_adjustment > 0 {
+            let receivers: Vec<ethers::abi::Address> = adjustments
+                .iter()
+                .map(|(r, _)| ethers::abi::Address::from(r.0 .0))
+                .collect();
+            let amounts: Vec<ethers::types::U256> =
+                adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
+            let tx = contract.deposit_many(receivers, amounts);
+            let result = tx.send().await;
+            if let Err(contract_call_err) = result {
+                let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
+                tracing::error!(%contract_call_err, ?revert);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                continue;
+            }
         }
-
         tracing::info!("adjustments complete");
         tokio::time::sleep(Duration::from_secs(60 * 10)).await;
     }
