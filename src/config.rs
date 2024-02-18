@@ -23,7 +23,7 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct Kafka {
     pub config: Hidden<BTreeMap<String, String>>,
-    pub csv_cache: PathBuf,
+    pub cache: PathBuf,
     pub topic: String,
 }
 

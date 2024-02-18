@@ -1,26 +1,21 @@
-use std::collections::{BTreeMap, HashMap};
-use std::fs::File;
-use std::path::PathBuf;
-
+use crate::config;
 use anyhow::Context as _;
-use chrono::Duration;
 use chrono::{serde::ts_milliseconds, DateTime, Utc};
+use chrono::{Datelike, Duration};
 use eventuals::{Eventual, EventualWriter, Ptr};
-use rdkafka::TopicPartitionList;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     Message,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use std::{collections::HashMap, fs::File, path::PathBuf};
 use thegraph::types::Address;
-
-use crate::config;
 
 pub async fn track_receipts(
     config: &config::Kafka,
 ) -> anyhow::Result<Eventual<Ptr<HashMap<Address, u128>>>> {
     let window = Duration::days(28);
-    let db = DB::new(config.csv_cache.clone(), window).context("failed to init DB")?;
+    let db = DB::new(config.cache.clone(), window).context("failed to init DB")?;
     let latest_timestamp = db.last_flush;
     tracing::debug!(?latest_timestamp);
 
@@ -38,24 +33,6 @@ pub async fn track_receipts(
     }
     let mut consumer: StreamConsumer = client_config.create()?;
     consumer.subscribe(&[&config.topic])?;
-
-    let timeout = std::time::Duration::from_secs(10);
-    let partitions = consumer
-        .fetch_metadata(Some(&config.topic), timeout)?
-        .topics()[0]
-        .partitions()
-        .len();
-    let mut assignment = TopicPartitionList::new();
-    for partition in 0..partitions {
-        assignment.add_partition(&config.topic, partition as i32);
-    }
-    consumer.assign(&assignment)?;
-    let posisitons =
-        consumer.offsets_for_timestamp(latest_timestamp.timestamp_millis(), timeout)?;
-    for position in posisitons.elements() {
-        assignment.set_partition_offset(&config.topic, position.partition(), position.offset())?;
-    }
-    consumer.seek_partitions(assignment, timeout)?;
 
     let (tx, rx) = Eventual::new();
     tokio::spawn(async move {
@@ -114,94 +91,79 @@ async fn process_messages(
 }
 
 struct DB {
-    /// indexer -> (date -> total_fees)
-    data: BTreeMap<Address, Vec<(DateTime<Utc>, u128)>>,
+    data: HashMap<Address, Vec<u128>>,
     file: PathBuf,
     window: Duration,
     last_flush: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Record {
-    timestamp: DateTime<Utc>,
-    indexer: Address,
-    fees: u128,
-}
-
 impl DB {
     fn new(file: PathBuf, window: Duration) -> anyhow::Result<Self> {
-        let _ = File::options().create_new(true).write(true).open(&file);
-        let mut reader = csv::Reader::from_path(&file)?;
-        let start = Utc::now() - window;
-        let records: Vec<Record> = reader
-            .deserialize()
-            .filter(|r| {
-                r.as_ref()
-                    .map(|r: &Record| r.timestamp >= start)
-                    .unwrap_or(true)
-            })
-            .collect::<Result<_, _>>()?;
-        let last_flush = records.iter().map(|r| r.timestamp).max().unwrap_or(start);
-        let mut this = Self {
-            data: Default::default(),
+        let cache = File::options().create_new(true).write(true).open(&file)?;
+        let modified: DateTime<Utc> = DateTime::from(cache.metadata()?.modified()?);
+        let mut data: HashMap<Address, Vec<u128>> =
+            serde_json::from_reader(&cache).unwrap_or_default();
+        drop(cache);
+        assert!(data.values().all(|v| v.len() == window.num_days() as usize));
+        let now = Utc::now();
+        let offset: usize = (now - modified)
+            .num_days()
+            .min(window.num_days())
+            .try_into()
+            .unwrap_or(0);
+        for bins in data.values_mut() {
+            bins.rotate_right(offset);
+            for entry in bins.iter_mut().take(offset) {
+                *entry = 0;
+            }
+        }
+        Ok(Self {
+            data,
             file,
             window,
-            last_flush,
-        };
-        for record in records {
-            this.update(record.indexer, record.timestamp, record.fees);
-        }
-        Ok(this)
+            last_flush: now,
+        })
     }
 
     fn flush(&mut self) -> anyhow::Result<()> {
-        let mut writer = csv::Writer::from_path(&self.file)?;
         let now = Utc::now();
-        for (indexer, daily_fees) in &mut self.data {
-            // prune old entries
-            daily_fees.retain(|(t, _)| t >= &(now - self.window));
-            // copy & sort for easier debugging
-            let mut daily_fees = daily_fees.clone();
-            daily_fees.sort_by_key(|(t, _)| *t);
-
-            for (timestamp, fees) in daily_fees {
-                writer.serialize(Record {
-                    timestamp,
-                    indexer: *indexer,
-                    fees,
-                })?;
+        if self.last_flush.day() != now.day() {
+            for bins in self.data.values_mut() {
+                bins.rotate_right(1);
+                bins[0] = 0;
             }
         }
-        writer.flush()?;
-        self.last_flush = Utc::now();
+
+        let file = File::options()
+            .create_new(true)
+            .write(true)
+            .open(&self.file)?;
+        serde_json::to_writer(&file, &self.data)?;
+
+        self.last_flush = now;
         Ok(())
     }
 
     fn update(&mut self, indexer: Address, timestamp: DateTime<Utc>, fees: u128) {
-        if timestamp < (Utc::now() - self.window) {
+        let now = Utc::now();
+        if timestamp < (now - self.window) {
+            tracing::warn!(
+                "discaring update outside window, try moving up consumer group partition offsets"
+            );
             return;
         }
-        let daily_fees = self.data.entry(indexer).or_default();
-        let index = daily_fees
-            .iter_mut()
-            .position(|(t, _)| t.date_naive() == timestamp.date_naive());
-        match index {
-            None => {
-                daily_fees.push((timestamp, fees));
-            }
-            Some(index) => {
-                daily_fees[index] = (timestamp, daily_fees[index].1 + fees);
-            }
-        }
+        let daily_fees = self
+            .data
+            .entry(indexer)
+            .or_insert_with(|| Vec::from_iter((0..self.window.num_days()).map(|_| 0)));
+        let offset: usize = (now - timestamp).num_days().try_into().unwrap_or(0);
+        daily_fees[offset] += fees;
     }
 
     fn total_fees(&self) -> HashMap<Address, u128> {
         self.data
             .iter()
-            .map(|(indexer, daily_fees)| {
-                let total_fees = daily_fees.iter().map(|(_, fees)| fees).sum();
-                (*indexer, total_fees)
-            })
+            .map(|(indexer, daily_fees)| (*indexer, daily_fees.iter().sum()))
             .collect()
     }
 }
