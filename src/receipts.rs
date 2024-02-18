@@ -51,6 +51,7 @@ async fn process_messages(
     graph_env: String,
 ) -> anyhow::Result<()> {
     let mut rate_count: u64 = 0;
+    let mut latest_msg = Utc::now();
     loop {
         let msg = match consumer.recv().await {
             Ok(msg) => msg,
@@ -63,7 +64,15 @@ async fn process_messages(
             Some(payload) => payload,
             None => continue,
         };
+
         rate_count += 1;
+        if Utc::now().signed_duration_since(db.last_flush) > Duration::seconds(30) {
+            let msg_hz = rate_count / 30;
+            rate_count = 0;
+            tracing::info!(?latest_msg, msg_hz, "flush");
+            db.flush()?;
+            tx.write(Ptr::new(db.total_fees()));
+        }
 
         #[derive(Deserialize)]
         struct Payload {
@@ -76,20 +85,13 @@ async fn process_messages(
             legacy_scalar: bool,
         }
         let payload: Payload = serde_json::from_reader(payload)?;
+        latest_msg = payload.timestamp.max(latest_msg);
         if payload.legacy_scalar || (payload.graph_env != graph_env) {
             continue;
         }
 
         let fees = (payload.fee * 1e18) as u128;
         db.update(payload.indexer, payload.timestamp, fees);
-
-        if Utc::now().signed_duration_since(db.last_flush) > Duration::seconds(30) {
-            let msg_hz = rate_count / 30;
-            rate_count = 0;
-            tracing::info!(timestamp = ?payload.timestamp, msg_hz, "flush");
-            db.flush()?;
-            tx.write(Ptr::new(db.total_fees()));
-        }
     }
 }
 

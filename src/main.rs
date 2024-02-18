@@ -115,8 +115,8 @@ async fn main() -> anyhow::Result<()> {
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 continue;
             }
+            tracing::info!("adjustments complete");
         }
-        tracing::info!("adjustments complete");
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
