@@ -25,6 +25,10 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 abigen!(Escrow, "src/abi/Escrow.abi.json");
 
+const GRT: u128 = 1_000_000_000_000_000_000;
+const MIN_DEPOSIT: u128 = 16 * GRT;
+const MAX_DEPOSIT: u128 = 10_000 * GRT;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -53,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
         provider.clone(),
     );
 
-    let debts = track_receipts(&config.kafka)
+    let debts = track_receipts(&config.kafka, config.graph_env)
         .await
         .context("failed to start kafka client")?;
 
@@ -71,10 +75,6 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(escrow_accounts = escrow_accounts.value().await.unwrap().len());
 
     loop {
-        let grt = 1_000_000_000_000_000_000_u128;
-        let min_deposit = 16 * grt;
-        let max_deposit = 10_000 * grt;
-
         let debts = debts.value_immediate().unwrap_or_default();
         let escrow_accounts = escrow_accounts.value().await.unwrap();
         let mut receivers = active_indexers.value().await.unwrap().as_ref().clone();
@@ -84,32 +84,16 @@ async fn main() -> anyhow::Result<()> {
             .filter_map(|receiver| {
                 let balance = escrow_accounts.get(&receiver).cloned().unwrap_or(0);
                 let debt = debts.get(&receiver).cloned().unwrap_or(0);
-                if balance == 0 {
-                    let mut next_balance = min_deposit;
-                    while next_balance <= (debt * 2) {
-                        next_balance *= 2;
-                    }
-                    tracing::info!(
-                        ?receiver,
-                        balance_grt = (balance as f64) / (grt as f64),
-                        debt_grt = (debt as f64) / (grt as f64),
-                        adjustment_grt = (next_balance as f64) / (grt as f64),
-                    );
-                    return Some((receiver, next_balance));
-                }
-                let next_balance = (balance + 1).next_power_of_two();
-                let utilization =
-                    (debt as f64 / grt as f64) / (balance as f64 / grt as f64).max(1.0);
-                if (utilization < 0.6) || (next_balance > max_deposit) {
+                let next_balance = next_balance(debt);
+                let adjustment = next_balance.saturating_sub(balance);
+                if adjustment == 0 {
                     return None;
                 }
-                let next_balance = next_balance.max(min_deposit);
-                let adjustment = next_balance - balance;
                 tracing::info!(
                     ?receiver,
-                    balance_grt = (balance as f64) / (grt as f64),
-                    debt_grt = (debt as f64) / (grt as f64),
-                    adjustment_grt = (adjustment as f64) / (grt as f64),
+                    balance_grt = (balance as f64) / (GRT as f64),
+                    debt_grt = (debt as f64) / (GRT as f64),
+                    adjustment_grt = (next_balance as f64) / (GRT as f64),
                 );
                 Some((receiver, adjustment))
             })
@@ -137,7 +121,18 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-pub fn active_indexers(
+fn next_balance(debt: u128) -> u128 {
+    let mut next_round = (MIN_DEPOSIT / GRT) as u32;
+    if debt >= MAX_DEPOSIT {
+        return MAX_DEPOSIT;
+    }
+    while (debt as f64) >= ((next_round as u128 * GRT) as f64 * 0.6) {
+        next_round = next_round.saturating_mul(2);
+    }
+    (next_round as u128 * GRT).min(MAX_DEPOSIT)
+}
+
+fn active_indexers(
     http_client: reqwest::Client,
     subgraph_endpoint: Url,
 ) -> Eventual<Ptr<HashSet<Address>>> {
@@ -164,7 +159,7 @@ pub fn active_indexers(
         .map(|v| async move { Ptr::new(v.iter().map(|i| i.id).collect()) })
 }
 
-pub fn escrow_accounts(
+fn escrow_accounts(
     http_client: reqwest::Client,
     subgraph_endpoint: Url,
     sender: Address,
@@ -233,4 +228,33 @@ where
         })
         .forever();
     reader
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GRT, MAX_DEPOSIT, MIN_DEPOSIT};
+
+    #[test]
+    fn next_balance() {
+        let tests = [
+            (0, MIN_DEPOSIT),
+            (3 * GRT, MIN_DEPOSIT),
+            (MIN_DEPOSIT / 2, MIN_DEPOSIT),
+            (MIN_DEPOSIT, MIN_DEPOSIT * 2),
+            (MIN_DEPOSIT + 1, MIN_DEPOSIT * 2),
+            (MIN_DEPOSIT + GRT, MIN_DEPOSIT * 2),
+            (30 * GRT, 64 * GRT),
+            (70 * GRT, 128 * GRT),
+            (100 * GRT, 256 * GRT),
+            (MAX_DEPOSIT, MAX_DEPOSIT),
+            (MAX_DEPOSIT + GRT, MAX_DEPOSIT),
+            (1_000_000 * GRT, MAX_DEPOSIT),
+            (u128::MAX, MAX_DEPOSIT),
+            (MAX_DEPOSIT - 1, MAX_DEPOSIT),
+            (MAX_DEPOSIT - GRT, MAX_DEPOSIT),
+        ];
+        for (debt, expected) in tests {
+            assert_eq!(super::next_balance(debt), expected);
+        }
+    }
 }

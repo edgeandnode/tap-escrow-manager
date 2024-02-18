@@ -12,6 +12,7 @@ pub struct Config {
     pub escrow_contract: Address,
     #[serde_as(as = "DisplayFromStr")]
     pub escrow_subgraph: Url,
+    pub graph_env: String,
     pub kafka: Kafka,
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,

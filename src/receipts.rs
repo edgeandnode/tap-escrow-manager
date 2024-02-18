@@ -13,6 +13,7 @@ use thegraph::types::Address;
 
 pub async fn track_receipts(
     config: &config::Kafka,
+    graph_env: String,
 ) -> anyhow::Result<Eventual<Ptr<HashMap<Address, u128>>>> {
     let window = Duration::days(28);
     let db = DB::new(config.cache.clone(), window).context("failed to init DB")?;
@@ -36,7 +37,7 @@ pub async fn track_receipts(
 
     let (tx, rx) = Eventual::new();
     tokio::spawn(async move {
-        if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, tx).await {
+        if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, tx, graph_env).await {
             tracing::error!(%kafka_consumer_err);
         }
     });
@@ -47,6 +48,7 @@ async fn process_messages(
     consumer: &mut StreamConsumer,
     mut db: DB,
     mut tx: EventualWriter<Ptr<HashMap<Address, u128>>>,
+    graph_env: String,
 ) -> anyhow::Result<()> {
     let mut rate_count: u64 = 0;
     loop {
@@ -67,13 +69,14 @@ async fn process_messages(
         struct Payload {
             #[serde(with = "ts_milliseconds")]
             timestamp: DateTime<Utc>,
+            graph_env: String,
             indexer: Address,
             fee: f64,
             #[serde(default)]
             legacy_scalar: bool,
         }
         let payload: Payload = serde_json::from_reader(payload)?;
-        if payload.legacy_scalar {
+        if payload.legacy_scalar || (payload.graph_env != graph_env) {
             continue;
         }
 
@@ -99,7 +102,7 @@ struct DB {
 
 impl DB {
     fn new(file: PathBuf, window: Duration) -> anyhow::Result<Self> {
-        let cache = File::options().create_new(true).write(true).open(&file)?;
+        let cache = File::options().write(true).create(true).open(&file)?;
         let modified: DateTime<Utc> = DateTime::from(cache.metadata()?.modified()?);
         let mut data: HashMap<Address, Vec<u128>> =
             serde_json::from_reader(&cache).unwrap_or_default();
@@ -134,10 +137,7 @@ impl DB {
             }
         }
 
-        let file = File::options()
-            .create_new(true)
-            .write(true)
-            .open(&self.file)?;
+        let file = File::options().write(true).create(true).open(&self.file)?;
         serde_json::to_writer(&file, &self.data)?;
 
         self.last_flush = now;
