@@ -133,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         tracing::info!("adjustments complete");
-        tokio::time::sleep(Duration::from_secs(60 * 10)).await;
+        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
 
