@@ -139,7 +139,7 @@ impl DB {
             }
         }
 
-        let file = File::options().write(true).create(true).open(&self.file)?;
+        let file = File::create(&self.file)?;
         serde_json::to_writer(&file, &self.data)?;
 
         self.last_flush = now;
