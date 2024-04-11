@@ -1,7 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::{env, fs, time::Duration};
-
+use crate::receipts::track_receipts;
 use anyhow::{anyhow, Context as _};
 use config::Config;
 use ethers::middleware::contract::abigen;
@@ -9,13 +6,14 @@ use ethers::prelude::{Http, Provider, SignerMiddleware};
 use ethers::signers::{LocalWallet, Signer as _};
 use ethers::types::U256;
 use eventuals::{Eventual, EventualExt, Ptr};
+use reqwest::Url;
 use serde::Deserialize;
-use thegraph::client::Client as SubgraphClient;
-use thegraph::types::Address;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::{env, fs, time::Duration};
+use thegraph_core::client::Client as SubgraphClient;
+use thegraph_core::types::alloy_primitives::Address;
 use tokio::sync::Mutex;
-use toolshed::url::Url;
-
-use crate::receipts::track_receipts;
 
 mod config;
 mod receipts;
@@ -50,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
         .tcp_nodelay(true)
         .timeout(Duration::from_secs(10))
         .build()?;
-    let provider = Provider::new(Http::new_with_client(config.rpc_url.0.clone(), http_client));
+    let provider = Provider::new(Http::new_with_client(config.rpc_url.clone(), http_client));
     let provider = Arc::new(SignerMiddleware::new(provider, wallet));
     let contract = Escrow::new(
         ethers::abi::Address::from(config.escrow_contract.0 .0),

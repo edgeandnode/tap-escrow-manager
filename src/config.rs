@@ -1,9 +1,8 @@
-use std::{collections::BTreeMap, fmt, ops::Deref, path::PathBuf, str::FromStr};
-
+use reqwest::Url;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use thegraph::types::{Address, B256};
-use toolshed::url::Url;
+use std::{collections::BTreeMap, fmt, ops::Deref, path::PathBuf, str::FromStr};
+use thegraph_core::types::alloy_primitives::{Address, B256};
 
 #[serde_as]
 #[derive(Debug, Deserialize)]

@@ -7,7 +7,7 @@ The following data sources are monitored to guide the allocation of GRT into the
 - [Graph Network Subgraph](https://github.com/graphprotocol/graph-network-subgraph)
 - [TAP Subgraph](https://github.com/semiotic-ai/timeline-aggregation-protocol-subgraph)
 - The gateway's Kafka topic for indexer query reports, to account for outstanding debts from receipts sent to indexers
-  - Note: Kafka messages are processed for the past 28 days (Escrow `withdrawEscrowThawingPeriod`). Daily aggregations are stored to a CSV file to avoid reprocessing on restart. The size of this file is expected to be `728 * 28 * active_indexer_count` bytes.
+  - Note: Kafka messages are processed for the past 28 days (Escrow `withdrawEscrowThawingPeriod`). Daily aggregations are stored to a file to avoid reprocessing on restart.
 
 # Configuration
 

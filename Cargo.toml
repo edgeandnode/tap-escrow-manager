@@ -9,27 +9,24 @@ chrono = { version = "0.4.34", default-features = false, features = [
   "clock",
   "serde",
 ] }
-ethers = "2.0.10"
+ethers = "2.0.14"
 eventuals = "0.6.7"
 rdkafka = { version = "0.36.0", features = [
   "cmake-build",
   "gssapi",
   "tracing",
 ] }
-reqwest = { version = "0.11.23", features = ["json"] }
+reqwest = { version = "0.11.27", features = ["json"] }
 serde = { version = "1.0.190", features = ["derive"] }
 serde_json = { version = "1.0.108", features = ["raw_value"] }
 serde_with = "3.4.0"
 snmalloc-rs = "0.3.4"
-thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0", features = [
-  "subgraph-client",
-] }
+thegraph-core = { version = "0.2.3", features = ["subgraph-client"] }
 tokio = { version = "1.32.0", default-features = false, features = [
   "macros",
   "rt-multi-thread",
   "time",
   "tracing",
 ] }
-toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "toolshed-v0.5.0" }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.17"

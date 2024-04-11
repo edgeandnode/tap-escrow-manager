@@ -9,7 +9,7 @@ use rdkafka::{
 };
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, path::PathBuf};
-use thegraph::types::Address;
+use thegraph_core::types::alloy_primitives::Address;
 
 pub async fn track_receipts(
     config: &config::Kafka,
@@ -104,7 +104,7 @@ struct DB {
 
 impl DB {
     fn new(file: PathBuf, window: Duration) -> anyhow::Result<Self> {
-        let cache = File::options().write(true).create(true).open(&file)?;
+        let cache = File::options().create(true).truncate(false).open(&file)?;
         let modified: DateTime<Utc> = DateTime::from(cache.metadata()?.modified()?);
         let mut data: HashMap<Address, Vec<u128>> =
             serde_json::from_reader(&cache).unwrap_or_default();
