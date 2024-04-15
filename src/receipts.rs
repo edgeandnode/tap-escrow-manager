@@ -8,6 +8,7 @@ use rdkafka::{
     Message,
 };
 use serde::Deserialize;
+use std::io::Write as _;
 use std::{collections::HashMap, fs::File, path::PathBuf};
 use thegraph_core::types::alloy_primitives::Address;
 
@@ -104,7 +105,13 @@ struct DB {
 
 impl DB {
     fn new(file: PathBuf, window: Duration) -> anyhow::Result<Self> {
-        let cache = File::options().create(true).truncate(false).open(&file)?;
+        let cache = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&file)
+            .context("open cache file")?;
         let modified: DateTime<Utc> = DateTime::from(cache.metadata()?.modified()?);
         let mut data: HashMap<Address, Vec<u128>> =
             serde_json::from_reader(&cache).unwrap_or_default();
@@ -139,8 +146,9 @@ impl DB {
             }
         }
 
-        let file = File::create(&self.file)?;
+        let mut file = File::create(&self.file)?;
         serde_json::to_writer(&file, &self.data)?;
+        file.flush()?;
 
         self.last_flush = now;
         Ok(())
