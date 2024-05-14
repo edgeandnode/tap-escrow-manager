@@ -34,15 +34,13 @@ pub async fn track_receipts(
     let mut consumer: StreamConsumer = client_config.create()?;
     consumer.subscribe(&[&config.topic])?;
 
-    let (tx, mut rx) = watch::channel(Default::default());
+    let (tx, rx) = watch::channel(Default::default());
     tokio::spawn(async move {
         if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, tx, graph_env).await {
             tracing::error!(%kafka_consumer_err);
         }
     });
 
-    rx.wait_for(|debts: &HashMap<Address, u128>| !debts.is_empty())
-        .await?;
     Ok(rx)
 }
 

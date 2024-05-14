@@ -43,11 +43,13 @@ async fn main() -> anyhow::Result<()> {
         LocalWallet::from_bytes(config.secret_key.as_slice())?.with_chain_id(config.chain_id);
     let sender_address = wallet.address();
     tracing::info!(%sender_address);
-    let http_client = reqwest::ClientBuilder::new()
-        .tcp_nodelay(true)
-        .timeout(Duration::from_secs(10))
-        .build()?;
-    let provider = Provider::new(Http::new_with_client(config.rpc_url.clone(), http_client));
+
+    let provider = Provider::new(Http::new_with_client(
+        config.rpc_url.clone(),
+        reqwest_old::ClientBuilder::new()
+            .timeout(Duration::from_secs(10))
+            .build()?,
+    ));
     let provider = Arc::new(SignerMiddleware::new(provider, wallet));
     let contract = Escrow::new(
         ethers::abi::Address::from(config.escrow_contract.0 .0),
@@ -85,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
         receivers.extend(escrow_accounts.keys());
+        tracing::debug!(receivers = receivers.len());
 
         let debts = debts.borrow();
         let adjustments: Vec<(Address, u128)> = receivers
@@ -118,12 +121,30 @@ async fn main() -> anyhow::Result<()> {
             let amounts: Vec<ethers::types::U256> =
                 adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
             let tx = contract.deposit_many(receivers, amounts);
-            let result = tx.send().await;
-            if let Err(contract_call_err) = result {
-                let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
-                tracing::error!(%contract_call_err, ?revert);
-                continue;
+            let pending = match tx.send().await {
+                Ok(pending) => pending,
+                Err(contract_call_err) => {
+                    let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
+                    tracing::error!(%contract_call_err, ?revert);
+                    continue;
+                }
+            };
+            let completion = match pending.await {
+                Ok(completion) => completion,
+                Err(pending_tx_err) => {
+                    tracing::error!(%pending_tx_err);
+                    continue;
+                }
+            };
+            if let Some(latest_block) = completion.and_then(|c| c.block_number) {
+                escrow_subgraph = SubgraphClient::builder(
+                    escrow_subgraph.http_client,
+                    escrow_subgraph.subgraph_url,
+                )
+                .with_subgraph_latest_block(latest_block.as_u64())
+                .build();
             }
+
             tracing::info!("adjustments complete");
         }
     }
@@ -162,7 +183,7 @@ async fn active_indexers(
         id: Address,
     }
     Ok(network_subgraph
-        .paginated_query::<Indexer>(query)
+        .paginated_query::<Indexer>(query, 200)
         .await
         .map_err(|err| anyhow!(err))?
         .into_iter()
@@ -206,7 +227,7 @@ async fn escrow_accounts(
         id: Address,
     }
     Ok(escrow_subgraph
-        .paginated_query::<EscrowAccount>(query)
+        .paginated_query::<EscrowAccount>(query, 200)
         .await
         .map_err(|err| anyhow!(err))?
         .into_iter()
