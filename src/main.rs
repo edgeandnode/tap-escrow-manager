@@ -226,13 +226,17 @@ async fn escrow_accounts(
     struct Receiver {
         id: Address,
     }
-    Ok(escrow_subgraph
+    let response = escrow_subgraph
         .paginated_query::<EscrowAccount>(query, 200)
-        .await
-        .map_err(|err| anyhow!(err))?
-        .into_iter()
-        .map(|a| (a.receiver.id, a.balance))
-        .collect())
+        .await;
+    match response {
+        Ok(accounts) => Ok(accounts
+            .into_iter()
+            .map(|a| (a.receiver.id, a.balance))
+            .collect()),
+        Err(err) if err == "empty response" => Ok(Default::default()),
+        Err(err) => Err(anyhow!(err)),
+    }
 }
 
 #[cfg(test)]
