@@ -5,15 +5,13 @@ use ethers::middleware::contract::abigen;
 use ethers::prelude::{Http, Provider, SignerMiddleware};
 use ethers::signers::{LocalWallet, Signer as _};
 use ethers::types::U256;
-use eventuals::{Eventual, EventualExt, Ptr};
-use reqwest::Url;
 use serde::Deserialize;
+use serde_with::serde_as;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::{env, fs, time::Duration};
 use thegraph_core::client::Client as SubgraphClient;
 use thegraph_core::types::alloy_primitives::Address;
-use tokio::sync::Mutex;
 
 mod config;
 mod receipts;
@@ -62,21 +60,28 @@ async fn main() -> anyhow::Result<()> {
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    let active_indexers = active_indexers(http_client.clone(), config.network_subgraph);
-    let escrow_accounts = escrow_accounts(
-        http_client,
-        config.escrow_subgraph,
-        Address::from(sender_address.0),
-    );
-
-    tracing::info!(active_indexers = active_indexers.value().await.unwrap().len());
-    tracing::info!(escrow_accounts = escrow_accounts.value().await.unwrap().len());
+    let mut network_subgraph = SubgraphClient::new(http_client.clone(), config.network_subgraph);
+    let mut escrow_subgraph = SubgraphClient::new(http_client.clone(), config.escrow_subgraph);
+    let sender = Address::from(sender_address.0);
 
     loop {
-        let debts = debts.value_immediate().unwrap_or_default();
-        let escrow_accounts = escrow_accounts.value().await.unwrap();
-        let mut receivers = active_indexers.value().await.unwrap().as_ref().clone();
+        let mut receivers = match active_indexers(&mut network_subgraph).await {
+            Ok(receivers) => receivers,
+            Err(active_indexers_err) => {
+                tracing::error!(%active_indexers_err);
+                continue;
+            }
+        };
+        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &sender).await {
+            Ok(escrow_accounts) => escrow_accounts,
+            Err(escrow_accounts_err) => {
+                tracing::error!(%escrow_accounts_err);
+                continue;
+            }
+        };
         receivers.extend(escrow_accounts.keys());
+
+        let debts = debts.borrow();
         let adjustments: Vec<(Address, u128)> = receivers
             .into_iter()
             .filter_map(|receiver| {
@@ -96,6 +101,8 @@ async fn main() -> anyhow::Result<()> {
                 Some((receiver, adjustment))
             })
             .collect();
+        drop(debts);
+
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
         if total_adjustment > 0 {
@@ -130,11 +137,9 @@ fn next_balance(debt: u128) -> u128 {
     (next_round as u128 * GRT).min(MAX_DEPOSIT)
 }
 
-fn active_indexers(
-    http_client: reqwest::Client,
-    subgraph_endpoint: Url,
-) -> Eventual<Ptr<HashSet<Address>>> {
-    let client = SubgraphClient::new(http_client, subgraph_endpoint);
+async fn active_indexers(
+    network_subgraph: &mut SubgraphClient,
+) -> anyhow::Result<HashSet<Address>> {
     let query = r#"
         indexers(
             block: $block
@@ -153,16 +158,19 @@ fn active_indexers(
     struct Indexer {
         id: Address,
     }
-    spawn_poller::<Indexer>(client, query.to_string())
-        .map(|v| async move { Ptr::new(v.iter().map(|i| i.id).collect()) })
+    Ok(network_subgraph
+        .paginated_query::<Indexer>(query)
+        .await
+        .map_err(|err| anyhow!(err))?
+        .into_iter()
+        .map(|i| i.id)
+        .collect())
 }
 
-fn escrow_accounts(
-    http_client: reqwest::Client,
-    subgraph_endpoint: Url,
-    sender: Address,
-) -> Eventual<Ptr<HashMap<Address, u128>>> {
-    let client = SubgraphClient::new(http_client, subgraph_endpoint);
+async fn escrow_accounts(
+    escrow_subgraph: &mut SubgraphClient,
+    sender: &Address,
+) -> anyhow::Result<HashMap<Address, u128>> {
     let query = format!(
         r#"
         escrowAccounts(
@@ -183,49 +191,24 @@ fn escrow_accounts(
         }}
         "#
     );
+    #[serde_as]
     #[derive(Deserialize)]
     struct EscrowAccount {
-        balance: String,
+        #[serde_as(as = "serde_with::DisplayFromStr")]
+        balance: u128,
         receiver: Receiver,
     }
     #[derive(Deserialize)]
     struct Receiver {
         id: Address,
     }
-    spawn_poller::<EscrowAccount>(client, query.to_string()).map(|v| async move {
-        let entries = v
-            .iter()
-            .map(|account| {
-                let balance = account.balance.parse().expect("failed to parse balance");
-                (account.receiver.id, balance)
-            })
-            .collect();
-        Ptr::new(entries)
-    })
-}
-
-fn spawn_poller<T>(client: SubgraphClient, query: String) -> Eventual<Ptr<Vec<T>>>
-where
-    T: for<'de> Deserialize<'de> + Send + 'static,
-    Ptr<Vec<T>>: Send,
-{
-    let (writer, reader) = Eventual::new();
-    let state: &'static Mutex<_> = Box::leak(Box::new(Mutex::new((writer, client))));
-    eventuals::timer(Duration::from_secs(120))
-        .pipe_async(move |_| {
-            let query = query.clone();
-            async move {
-                let mut guard = state.lock().await;
-                match guard.1.paginated_query::<T>(query).await {
-                    Ok(response) => guard.0.write(Ptr::new(response)),
-                    Err(subgraph_poll_err) => {
-                        tracing::error!(%subgraph_poll_err, label = %std::any::type_name::<T>());
-                    }
-                };
-            }
-        })
-        .forever();
-    reader
+    Ok(escrow_subgraph
+        .paginated_query::<EscrowAccount>(query)
+        .await
+        .map_err(|err| anyhow!(err))?
+        .into_iter()
+        .map(|a| (a.receiver.id, a.balance))
+        .collect())
 }
 
 #[cfg(test)]

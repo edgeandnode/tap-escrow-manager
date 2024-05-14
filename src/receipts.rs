@@ -1,21 +1,19 @@
 use crate::config;
 use anyhow::Context as _;
-use chrono::{serde::ts_milliseconds, DateTime, Utc};
-use chrono::{Datelike, Duration};
-use eventuals::{Eventual, EventualWriter, Ptr};
+use chrono::{serde::ts_milliseconds, DateTime, Datelike, Duration, Utc};
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     Message,
 };
 use serde::Deserialize;
-use std::io::Write as _;
-use std::{collections::HashMap, fs::File, path::PathBuf};
+use std::{collections::HashMap, fs::File, io::Write as _, path::PathBuf};
 use thegraph_core::types::alloy_primitives::Address;
+use tokio::sync::watch;
 
 pub async fn track_receipts(
     config: &config::Kafka,
     graph_env: String,
-) -> anyhow::Result<Eventual<Ptr<HashMap<Address, u128>>>> {
+) -> anyhow::Result<watch::Receiver<HashMap<Address, u128>>> {
     let window = Duration::days(28);
     let db = DB::new(config.cache.clone(), window).context("failed to init DB")?;
     let latest_timestamp = db.last_flush;
@@ -36,19 +34,22 @@ pub async fn track_receipts(
     let mut consumer: StreamConsumer = client_config.create()?;
     consumer.subscribe(&[&config.topic])?;
 
-    let (tx, rx) = Eventual::new();
+    let (tx, mut rx) = watch::channel(Default::default());
     tokio::spawn(async move {
         if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, tx, graph_env).await {
             tracing::error!(%kafka_consumer_err);
         }
     });
+
+    rx.wait_for(|debts: &HashMap<Address, u128>| !debts.is_empty())
+        .await?;
     Ok(rx)
 }
 
 async fn process_messages(
     consumer: &mut StreamConsumer,
     mut db: DB,
-    mut tx: EventualWriter<Ptr<HashMap<Address, u128>>>,
+    tx: watch::Sender<HashMap<Address, u128>>,
     graph_env: String,
 ) -> anyhow::Result<()> {
     let mut rate_count: u64 = 0;
@@ -72,7 +73,7 @@ async fn process_messages(
             rate_count = 0;
             tracing::info!(?latest_msg, msg_hz, "flush");
             db.flush()?;
-            tx.write(Ptr::new(db.total_fees()));
+            tx.send(db.total_fees())?;
         }
 
         #[derive(Deserialize)]
