@@ -1,3 +1,6 @@
+mod config;
+mod receipts;
+
 use crate::receipts::track_receipts;
 use anyhow::{anyhow, Context as _};
 use config::Config;
@@ -12,9 +15,7 @@ use std::sync::Arc;
 use std::{env, fs, time::Duration};
 use thegraph_core::client::Client as SubgraphClient;
 use thegraph_core::types::alloy_primitives::Address;
-
-mod config;
-mod receipts;
+use tokio::time::{interval, MissedTickBehavior};
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -64,7 +65,11 @@ async fn main() -> anyhow::Result<()> {
     let mut escrow_subgraph = SubgraphClient::new(http_client.clone(), config.escrow_subgraph);
     let sender = Address::from(sender_address.0);
 
+    let mut interval = interval(Duration::from_secs(config.update_interval_seconds as u64));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
+        interval.tick().await;
+
         let mut receivers = match active_indexers(&mut network_subgraph).await {
             Ok(receivers) => receivers,
             Err(active_indexers_err) => {
@@ -117,12 +122,10 @@ async fn main() -> anyhow::Result<()> {
             if let Err(contract_call_err) = result {
                 let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
                 tracing::error!(%contract_call_err, ?revert);
-                tokio::time::sleep(Duration::from_secs(30)).await;
                 continue;
             }
             tracing::info!("adjustments complete");
         }
-        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
 
