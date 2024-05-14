@@ -18,6 +18,7 @@ pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     pub rpc_url: Hidden<Url>,
     pub secret_key: Hidden<B256>,
+    pub signers: Vec<Hidden<B256>>,
     pub update_interval_seconds: u32,
 }
 

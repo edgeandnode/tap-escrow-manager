@@ -7,14 +7,17 @@ use config::Config;
 use ethers::middleware::contract::abigen;
 use ethers::prelude::{Http, Provider, SignerMiddleware};
 use ethers::signers::{LocalWallet, Signer as _};
-use ethers::types::U256;
+use ethers::types::{Bytes, H256, U256};
+use ethers::utils::keccak256;
 use serde::Deserialize;
 use serde_with::serde_as;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs, time::Duration};
 use thegraph_core::client::Client as SubgraphClient;
 use thegraph_core::types::alloy_primitives::Address;
+use thegraph_core::types::alloy_sol_types::SolValue;
 use tokio::time::{interval, MissedTickBehavior};
 
 #[global_allocator]
@@ -39,10 +42,10 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to load config")?;
     tracing::info!("{config:#?}");
 
-    let wallet =
+    let sender =
         LocalWallet::from_bytes(config.secret_key.as_slice())?.with_chain_id(config.chain_id);
-    let sender_address = wallet.address();
-    tracing::info!(%sender_address);
+    let sender_address: Address = sender.address().0.into();
+    tracing::info!(sender = %sender_address);
 
     let provider = Provider::new(Http::new_with_client(
         config.rpc_url.clone(),
@@ -50,22 +53,68 @@ async fn main() -> anyhow::Result<()> {
             .timeout(Duration::from_secs(10))
             .build()?,
     ));
-    let provider = Arc::new(SignerMiddleware::new(provider, wallet));
+    let provider = Arc::new(SignerMiddleware::new(provider, sender.clone()));
     let contract = Escrow::new(
         ethers::abi::Address::from(config.escrow_contract.0 .0),
         provider.clone(),
     );
-
-    let debts = track_receipts(&config.kafka, config.graph_env)
-        .await
-        .context("failed to start kafka client")?;
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
     let mut network_subgraph = SubgraphClient::new(http_client.clone(), config.network_subgraph);
     let mut escrow_subgraph = SubgraphClient::new(http_client.clone(), config.escrow_subgraph);
-    let sender = Address::from(sender_address.0);
+
+    let authorized_signers = authorized_signers(&mut escrow_subgraph, &sender_address)
+        .await
+        .context("fetch authorized signers")?;
+    for signer in config.signers {
+        let signer = LocalWallet::from_bytes(signer.as_slice())?.with_chain_id(config.chain_id);
+        let authorized = authorized_signers.contains(&signer.address().0.into());
+        tracing::info!(signer = %signer.address(), %authorized);
+        let deadline_offset_s = 60;
+        let deadline: U256 = (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + deadline_offset_s)
+            .into();
+        let mut proof_message = [0u8; 84];
+        U256::from(config.chain_id).to_big_endian(&mut proof_message[0..32]);
+        deadline.to_big_endian(&mut proof_message[32..64]);
+        proof_message[64..].copy_from_slice(&sender.address().0.abi_encode_packed());
+        let hash = H256(keccak256(proof_message));
+        let signature = signer
+            .sign_message(hash)
+            .await
+            .context("sign authorization proof")?;
+        let mut proof = [0u8; 65];
+        signature.r.to_big_endian(&mut proof[0..32]);
+        signature.s.to_big_endian(&mut proof[32..64]);
+        proof[64] = signature.v as u8;
+        let proof: Bytes = proof.into();
+        let tx = contract.authorize_signer(signer.address(), deadline, proof);
+        match tx.send().await {
+            Ok(result) => {
+                result.await.context("authorize tx provider error")?;
+            }
+            Err(err) => match err.decode_contract_revert::<EscrowErrors>() {
+                // We may encounter this condition if the subgraph is behind.
+                Some(EscrowErrors::SignerAlreadyAuthorized { .. }) => (),
+                Some(revert) => {
+                    return Err(anyhow!("Revert({revert:?})").context("authorize signer"));
+                }
+                None => {
+                    return Err(anyhow!(err).context("authorize signer"));
+                }
+            },
+        };
+        tracing::info!(signer = %signer.address(), "authorized");
+    }
+
+    let debts = track_receipts(&config.kafka, config.graph_env)
+        .await
+        .context("failed to start kafka client")?;
 
     let mut interval = interval(Duration::from_secs(config.update_interval_seconds as u64));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -79,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &sender).await {
+        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &sender_address).await {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {
                 tracing::error!(%escrow_accounts_err);
@@ -159,6 +208,37 @@ fn next_balance(debt: u128) -> u128 {
         next_round = next_round.saturating_mul(2);
     }
     (next_round as u128 * GRT).min(MAX_DEPOSIT)
+}
+
+async fn authorized_signers(
+    escrow_subgraph: &mut SubgraphClient,
+    sender: &Address,
+) -> anyhow::Result<Vec<Address>> {
+    #[derive(Deserialize)]
+    struct Data {
+        sender: Option<Sender>,
+    }
+    #[derive(Deserialize)]
+    struct Sender {
+        signers: Vec<Signer>,
+    }
+    #[derive(Deserialize)]
+    struct Signer {
+        id: Address,
+    }
+    let data = escrow_subgraph
+        .query::<Data>(format!(
+            r#"{{ sender(id:"{sender:?}") {{ signers {{ id }} }} }}"#,
+        ))
+        .await
+        .map_err(|err| anyhow!(err))?;
+    let signers = data
+        .sender
+        .into_iter()
+        .flat_map(|s| s.signers)
+        .map(|s| s.id)
+        .collect();
+    Ok(signers)
 }
 
 async fn active_indexers(
