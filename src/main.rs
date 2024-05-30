@@ -62,8 +62,13 @@ async fn main() -> anyhow::Result<()> {
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    let mut network_subgraph = SubgraphClient::new(http_client.clone(), config.network_subgraph);
-    let mut escrow_subgraph = SubgraphClient::new(http_client.clone(), config.escrow_subgraph);
+    let mut network_subgraph =
+        SubgraphClient::builder(http_client.clone(), config.network_subgraph)
+            .with_auth_token(config.query_auth.clone())
+            .build();
+    let mut escrow_subgraph = SubgraphClient::builder(http_client.clone(), config.escrow_subgraph)
+        .with_auth_token(config.query_auth)
+        .build();
 
     let authorized_signers = authorized_signers(&mut escrow_subgraph, &sender_address)
         .await

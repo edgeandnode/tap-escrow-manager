@@ -15,6 +15,8 @@ pub struct Config {
     pub kafka: Kafka,
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,
+    #[serde(default)]
+    pub query_auth: Option<String>,
     #[serde_as(as = "DisplayFromStr")]
     pub rpc_url: Hidden<Url>,
     pub secret_key: Hidden<B256>,
