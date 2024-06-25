@@ -1,24 +1,31 @@
 mod config;
 mod receipts;
 
-use crate::receipts::track_receipts;
+use std::{
+    collections::{HashMap, HashSet},
+    env, fs,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
 use anyhow::{anyhow, Context as _};
 use config::Config;
-use ethers::middleware::contract::abigen;
-use ethers::prelude::{Http, Provider, SignerMiddleware};
-use ethers::signers::{LocalWallet, Signer as _};
-use ethers::types::{Bytes, H256, U256};
-use ethers::utils::keccak256;
+use ethers::{
+    middleware::contract::abigen,
+    prelude::{Http, Provider, SignerMiddleware},
+    signers::{LocalWallet, Signer as _},
+    types::{Bytes, H256, U256},
+    utils::keccak256,
+};
 use serde::Deserialize;
 use serde_with::serde_as;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{env, fs, time::Duration};
-use thegraph_core::client::Client as SubgraphClient;
-use thegraph_core::types::alloy_primitives::Address;
-use thegraph_core::types::alloy_sol_types::SolValue;
+use thegraph_core::{
+    client::Client as SubgraphClient,
+    types::{alloy_primitives::Address, alloy_sol_types::SolValue},
+};
 use tokio::time::{interval, MissedTickBehavior};
+
+use crate::receipts::track_receipts;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;

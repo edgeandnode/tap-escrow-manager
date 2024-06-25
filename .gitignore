@@ -1,2 +1,8 @@
+## IDEs and editors
+/.idea
+/.vscode
+
+## Rust
 /.config/
+**/*.rs.bk
 /target/
