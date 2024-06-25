@@ -1,4 +1,5 @@
-use crate::config;
+use std::{collections::HashMap, fs::File, io::Write as _, path::PathBuf};
+
 use anyhow::Context as _;
 use chrono::{serde::ts_milliseconds, DateTime, Datelike, Duration, Utc};
 use rdkafka::{
@@ -6,9 +7,10 @@ use rdkafka::{
     Message,
 };
 use serde::Deserialize;
-use std::{collections::HashMap, fs::File, io::Write as _, path::PathBuf};
 use thegraph_core::types::alloy_primitives::Address;
 use tokio::sync::watch;
+
+use crate::config;
 
 pub async fn track_receipts(
     config: &config::Kafka,
