@@ -24,7 +24,7 @@ pub async fn track_receipts(
     let mut client_config = rdkafka::ClientConfig::new();
     client_config.extend(config.config.clone().into_iter());
     let defaults = [
-        ("group.id", "gw-escrow-manager"),
+        ("group.id", "tap-escrow-manager"),
         ("enable.auto.commit", "true"),
         ("auto.offset.reset", "earliest"),
     ];

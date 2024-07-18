@@ -71,10 +71,10 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
     let mut network_subgraph =
         SubgraphClient::builder(http_client.clone(), config.network_subgraph)
-            .with_auth_token(config.query_auth.clone())
+            .with_auth_token(Some(config.query_auth.clone()))
             .build();
     let mut escrow_subgraph = SubgraphClient::builder(http_client.clone(), config.escrow_subgraph)
-        .with_auth_token(config.query_auth)
+        .with_auth_token(Some(config.query_auth.clone()))
         .build();
 
     let authorized_signers = authorized_signers(&mut escrow_subgraph, &sender_address)
@@ -275,7 +275,7 @@ async fn active_indexers(
         id: Address,
     }
     Ok(network_subgraph
-        .paginated_query::<Indexer>(query, 200)
+        .paginated_query::<Indexer>(query, 500)
         .await
         .map_err(|err| anyhow!(err))?
         .into_iter()
@@ -319,7 +319,7 @@ async fn escrow_accounts(
         id: Address,
     }
     let response = escrow_subgraph
-        .paginated_query::<EscrowAccount>(query, 200)
+        .paginated_query::<EscrowAccount>(query, 500)
         .await;
     match response {
         Ok(accounts) => Ok(accounts
