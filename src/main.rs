@@ -20,7 +20,7 @@ use ethers::{
 use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph_core::{
-    client::Client as SubgraphClient,
+    client::{Client as SubgraphClient, PaginatedQueryError},
     types::{alloy_primitives::Address, alloy_sol_types::SolValue},
 };
 use tokio::time::{interval, MissedTickBehavior};
@@ -326,7 +326,7 @@ async fn escrow_accounts(
             .into_iter()
             .map(|a| (a.receiver.id, a.balance))
             .collect()),
-        Err(err) if err == "empty response" => Ok(Default::default()),
+        Err(PaginatedQueryError::EmptyResponse) => Ok(Default::default()),
         Err(err) => Err(anyhow!(err)),
     }
 }
