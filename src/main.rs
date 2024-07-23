@@ -33,7 +33,7 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 abigen!(Escrow, "src/abi/Escrow.abi.json");
 
 const GRT: u128 = 1_000_000_000_000_000_000;
-const MIN_DEPOSIT: u128 = 16 * GRT;
+const MIN_DEPOSIT: u128 = 2 * GRT;
 const MAX_DEPOSIT: u128 = 10_000 * GRT;
 
 #[tokio::main]
@@ -339,11 +339,10 @@ mod tests {
     fn next_balance() {
         let tests = [
             (0, MIN_DEPOSIT),
-            (3 * GRT, MIN_DEPOSIT),
+            (1 * GRT, MIN_DEPOSIT),
             (MIN_DEPOSIT / 2, MIN_DEPOSIT),
             (MIN_DEPOSIT, MIN_DEPOSIT * 2),
             (MIN_DEPOSIT + 1, MIN_DEPOSIT * 2),
-            (MIN_DEPOSIT + GRT, MIN_DEPOSIT * 2),
             (30 * GRT, 64 * GRT),
             (70 * GRT, 128 * GRT),
             (100 * GRT, 256 * GRT),
