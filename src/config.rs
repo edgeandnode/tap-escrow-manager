@@ -13,6 +13,8 @@ pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     pub escrow_subgraph: Url,
     pub graph_env: String,
+    pub grt_contract: Address,
+    pub grt_allowance: u64,
     pub kafka: Kafka,
     #[serde_as(as = "DisplayFromStr")]
     pub network_subgraph: Url,

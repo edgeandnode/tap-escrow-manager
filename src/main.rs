@@ -30,6 +30,7 @@ use crate::receipts::track_receipts;
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
+abigen!(ERC20, "src/abi/ERC20.abi.json");
 abigen!(Escrow, "src/abi/Escrow.abi.json");
 
 const GRT: u128 = 1_000_000_000_000_000_000;
@@ -61,8 +62,12 @@ async fn main() -> anyhow::Result<()> {
             .build()?,
     ));
     let provider = Arc::new(SignerMiddleware::new(provider, sender.clone()));
-    let contract = Escrow::new(
+    let escrow = Escrow::new(
         ethers::abi::Address::from(config.escrow_contract.0 .0),
+        provider.clone(),
+    );
+    let token = ERC20::new(
+        ethers::abi::Address::from(config.grt_contract.0 .0),
         provider.clone(),
     );
 
@@ -105,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
         signature.s.to_big_endian(&mut proof[32..64]);
         proof[64] = signature.v as u8;
         let proof: Bytes = proof.into();
-        let tx = contract.authorize_signer(signer.address(), deadline, proof);
+        let tx = escrow.authorize_signer(signer.address(), deadline, proof);
         match tx.send().await {
             Ok(result) => {
                 result.await.context("authorize tx provider error")?;
@@ -123,6 +128,22 @@ async fn main() -> anyhow::Result<()> {
         };
         tracing::info!(signer = %signer.address(), "authorized");
     }
+
+    let allowance = token
+        .allowance(sender.address(), escrow.address())
+        .await
+        .context("get allowance")?;
+    let expected_allowance = U256::from(config.grt_allowance as u128 * GRT);
+    tracing::info!(allowance = allowance.as_u128() as f64 * 1e-18);
+    if allowance < expected_allowance {
+        let tx = token.approve(escrow.address(), expected_allowance);
+        tx.send().await.context("approve")?;
+    }
+    let allowance = token
+        .allowance(sender.address(), escrow.address())
+        .await
+        .context("get allowance")?;
+    tracing::info!(allowance = allowance.as_u128() as f64 * 1e-18);
 
     let debts = track_receipts(&config.kafka, config.graph_env)
         .await
@@ -181,7 +202,7 @@ async fn main() -> anyhow::Result<()> {
                 .collect();
             let amounts: Vec<ethers::types::U256> =
                 adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
-            let tx = contract.deposit_many(receivers, amounts);
+            let tx = escrow.deposit_many(receivers, amounts);
             let pending = match tx.send().await {
                 Ok(pending) => pending,
                 Err(contract_call_err) => {
@@ -339,7 +360,7 @@ mod tests {
     fn next_balance() {
         let tests = [
             (0, MIN_DEPOSIT),
-            (1 * GRT, MIN_DEPOSIT),
+            (GRT, MIN_DEPOSIT),
             (MIN_DEPOSIT / 2, MIN_DEPOSIT),
             (MIN_DEPOSIT, MIN_DEPOSIT * 2),
             (MIN_DEPOSIT + 1, MIN_DEPOSIT * 2),
