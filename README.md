@@ -18,3 +18,7 @@ Configuration options are set via a single JSON file. The structure of the file 
 Log levels are controlled by the `RUST_LOG` environment variable ([details](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)).
 
 example: `RUST_LOG=info,tap_escrow_manager=debug cargo run -- config.json`
+
+# Useful Commands
+
+- `rpk group seek tap-escrow-manager-mainnet --to $unix_timestamp`
