@@ -231,6 +231,7 @@ async fn main() -> anyhow::Result<()> {
                     escrow_subgraph.http_client,
                     escrow_subgraph.subgraph_url,
                 )
+                .with_auth_token(Some(config.query_auth.clone()))
                 .with_subgraph_latest_block(latest_block.as_u64())
                 .build();
             }
