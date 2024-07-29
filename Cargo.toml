@@ -25,6 +25,7 @@ thegraph-core = { version = "0.5.6", features = ["subgraph-client"] }
 tokio = { version = "1.32.0", default-features = false, features = [
   "macros",
   "rt-multi-thread",
+  "signal",
   "time",
   "tracing",
 ] }

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{anyhow, bail, Context as _};
 use config::Config;
 use ethers::{
     middleware::contract::abigen,
@@ -23,7 +23,10 @@ use thegraph_core::{
     client::{Client as SubgraphClient, PaginatedQueryError},
     types::{alloy_primitives::Address, alloy_sol_types::SolValue},
 };
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::{
+    select,
+    time::{interval, MissedTickBehavior},
+};
 
 use crate::receipts::track_receipts;
 
@@ -151,8 +154,13 @@ async fn main() -> anyhow::Result<()> {
 
     let mut interval = interval(Duration::from_secs(config.update_interval_seconds as u64));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
-        interval.tick().await;
+        select! {
+            _ = interval.tick() => (),
+            _ = tokio::signal::ctrl_c() => bail!("exit"),
+            _ = sigterm.recv() => bail!("exit"),
+        };
 
         let mut receivers = match active_indexers(&mut network_subgraph).await {
             Ok(receivers) => receivers,
