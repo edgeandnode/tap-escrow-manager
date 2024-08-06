@@ -184,7 +184,10 @@ async fn main() -> anyhow::Result<()> {
             .into_iter()
             .filter_map(|receiver| {
                 let balance = escrow_accounts.get(&receiver).cloned().unwrap_or(0);
-                let debt = debts.get(&receiver).cloned().unwrap_or(0);
+                let debt = u128::max(
+                    debts.get(&receiver).copied().unwrap_or(0),
+                    config.debts.get(&receiver).copied().unwrap_or(0) as u128 * GRT,
+                );
                 let next_balance = next_balance(debt);
                 let adjustment = next_balance.saturating_sub(balance);
                 if adjustment == 0 {

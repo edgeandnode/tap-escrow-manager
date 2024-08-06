@@ -9,6 +9,7 @@ use thegraph_core::types::alloy_primitives::{Address, B256};
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub chain_id: u64,
+    pub debts: BTreeMap<Address, u64>,
     pub escrow_contract: Address,
     #[serde_as(as = "DisplayFromStr")]
     pub escrow_subgraph: Url,
