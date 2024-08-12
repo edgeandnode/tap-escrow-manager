@@ -3,7 +3,6 @@ name: Docker Image
 # configure manual trigger
 on:
   workflow_dispatch:
-  pull_request:
   push:
     branches:
       - main
