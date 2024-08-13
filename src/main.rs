@@ -140,7 +140,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(allowance = allowance.as_u128() as f64 * 1e-18);
     if allowance < expected_allowance {
         let tx = token.approve(escrow.address(), expected_allowance);
-        tx.send().await.context("approve")?;
+        let pending = tx.send().await.context("approve")?;
+        pending.await.context("approve pending")?;
     }
     let allowance = token
         .allowance(sender.address(), escrow.address())
@@ -218,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
                 Ok(pending) => pending,
                 Err(contract_call_err) => {
                     let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
-                    tracing::error!(%contract_call_err, ?revert);
+                    tracing::error!(?revert, %contract_call_err);
                     continue;
                 }
             };
