@@ -92,6 +92,9 @@ async fn main() -> anyhow::Result<()> {
         let signer = LocalWallet::from_bytes(signer.as_slice())?.with_chain_id(config.chain_id);
         let authorized = authorized_signers.contains(&signer.address().0.into());
         tracing::info!(signer = %signer.address(), %authorized);
+        if authorized {
+            continue;
+        }
         let deadline_offset_s = 60;
         let deadline: U256 = (SystemTime::now()
             .duration_since(UNIX_EPOCH)
