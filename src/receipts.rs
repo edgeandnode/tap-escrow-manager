@@ -1,15 +1,15 @@
 use std::{collections::BTreeMap, fs::File, io::Write as _, path::PathBuf};
 
+use alloy::{hex::ToHexExt as _, primitives::Address};
 use anyhow::Context as _;
 use chrono::{DateTime, Duration, Utc};
-use ethers::{providers::StreamExt, utils::hex::ToHex};
 use flate2::{read::GzDecoder, write::GzEncoder};
+use futures_util::StreamExt as _;
 use prost::Message as _;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     Message,
 };
-use thegraph_core::types::alloy_primitives::Address;
 use tokio::sync::{mpsc, watch};
 
 use crate::config;
@@ -84,7 +84,7 @@ async fn process_messages(
             let payload = match Payload::decode(payload) {
                 Ok(payload) => payload,
                 Err(payload_parse_err) => {
-                    tracing::error!(%payload_parse_err, input = payload.encode_hex::<String>());
+                    tracing::error!(%payload_parse_err, input = payload.encode_hex());
                     return;
                 }
             };

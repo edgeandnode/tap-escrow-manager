@@ -4,25 +4,22 @@ mod receipts;
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
-    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, bail, Context as _};
-use config::Config;
-use ethers::{
-    middleware::contract::abigen,
-    prelude::{Http, Provider, SignerMiddleware},
-    signers::{LocalWallet, Signer as _},
-    types::{Bytes, H256, U256},
-    utils::keccak256,
+use alloy::{
+    network::EthereumWallet,
+    primitives::{keccak256, Address, Bytes, U256},
+    providers::{Provider, ProviderBuilder},
+    signers::{local::PrivateKeySigner, SignerSync},
+    sol,
+    sol_types::SolValue,
 };
+use anyhow::{anyhow, bail, Context};
+use config::Config;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph_core::{
-    client::{Client as SubgraphClient, PaginatedQueryError},
-    types::{alloy_primitives::Address, alloy_sol_types::SolValue},
-};
+use thegraph_core::client::{Client as SubgraphClient, PaginatedQueryError};
 use tokio::{
     select,
     time::{interval, MissedTickBehavior},
@@ -33,8 +30,18 @@ use crate::receipts::track_receipts;
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
-abigen!(ERC20, "src/abi/ERC20.abi.json");
-abigen!(Escrow, "src/abi/Escrow.abi.json");
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    ERC20,
+    "src/abi/ERC20.abi.json"
+);
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    Escrow,
+    "src/abi/Escrow.abi.json"
+);
 
 const GRT: u128 = 1_000_000_000_000_000_000;
 const MIN_DEPOSIT: u128 = 2 * GRT;
@@ -53,107 +60,103 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to load config")?;
     tracing::info!("{config:#?}");
 
-    let sender =
-        LocalWallet::from_bytes(config.secret_key.as_slice())?.with_chain_id(config.chain_id);
-    let sender_address: Address = sender.address().0.into();
-    tracing::info!(sender = %sender_address);
+    let sender = PrivateKeySigner::from_bytes(&config.secret_key)?;
+    tracing::info!(sender = %sender.address());
 
-    let provider = Provider::new(Http::new_with_client(
-        config.rpc_url.clone(),
-        reqwest_old::ClientBuilder::new()
-            .timeout(Duration::from_secs(10))
-            .build()?,
-    ));
-    let provider = Arc::new(SignerMiddleware::new(provider, sender.clone()));
-    let escrow = Escrow::new(
-        ethers::abi::Address::from(config.escrow_contract.0 .0),
-        provider.clone(),
-    );
-    let token = ERC20::new(
-        ethers::abi::Address::from(config.grt_contract.0 .0),
-        provider.clone(),
-    );
-
-    let http_client = reqwest::Client::builder()
+    let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
-        .build()?;
-    let mut network_subgraph =
-        SubgraphClient::builder(http_client.clone(), config.network_subgraph)
-            .with_auth_token(Some(config.query_auth.clone()))
-            .build();
-    let mut escrow_subgraph = SubgraphClient::builder(http_client.clone(), config.escrow_subgraph)
+        .build()
+        .unwrap();
+    let provider = ProviderBuilder::new()
+        .with_recommended_fillers()
+        .wallet(EthereumWallet::from(sender.clone()))
+        .on_http(config.rpc_url.clone());
+    let chain_id = provider.get_chain_id().await.context("get chain ID")?;
+    let escrow = Escrow::new(config.escrow_contract, provider.clone());
+    let token = ERC20::new(config.grt_contract, provider.clone());
+
+    let mut network_subgraph = SubgraphClient::builder(http.clone(), config.network_subgraph)
+        .with_auth_token(Some(config.query_auth.clone()))
+        .build();
+    let mut escrow_subgraph = SubgraphClient::builder(http.clone(), config.escrow_subgraph)
         .with_auth_token(Some(config.query_auth.clone()))
         .build();
 
-    let authorized_signers = authorized_signers(&mut escrow_subgraph, &sender_address)
-        .await
-        .context("fetch authorized signers")?;
+    let mut signers: Vec<PrivateKeySigner> = Default::default();
     for signer in config.signers {
-        let signer = LocalWallet::from_bytes(signer.as_slice())?.with_chain_id(config.chain_id);
-        let authorized = authorized_signers.contains(&signer.address().0.into());
-        tracing::info!(signer = %signer.address(), %authorized);
-        if authorized {
-            continue;
-        }
-        let deadline_offset_s = 60;
-        let deadline: U256 = (SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + deadline_offset_s)
-            .into();
-        let mut proof_message = [0u8; 84];
-        U256::from(config.chain_id).to_big_endian(&mut proof_message[0..32]);
-        deadline.to_big_endian(&mut proof_message[32..64]);
-        proof_message[64..].copy_from_slice(&sender.address().0.abi_encode_packed());
-        let hash = H256(keccak256(proof_message));
-        let signature = signer
-            .sign_message(hash)
+        let signer = PrivateKeySigner::from_slice(signer.as_slice()).context("load signer key")?;
+        signers.push(signer);
+    }
+    let signers = signers;
+
+    if config.authorize_signers {
+        let authorized_signers = authorized_signers(&mut escrow_subgraph, &sender.address())
             .await
-            .context("sign authorization proof")?;
-        let mut proof = [0u8; 65];
-        signature.r.to_big_endian(&mut proof[0..32]);
-        signature.s.to_big_endian(&mut proof[32..64]);
-        proof[64] = signature.v as u8;
-        let proof: Bytes = proof.into();
-        let tx = escrow.authorize_signer(signer.address(), deadline, proof);
-        match tx.send().await {
-            Ok(result) => {
-                result.await.context("authorize tx provider error")?;
+            .context("fetch authorized signers")?;
+        for signer in &signers {
+            let authorized = authorized_signers.contains(&signer.address().0.into());
+            tracing::info!(signer = %signer.address(), authorized);
+            if authorized {
+                continue;
             }
-            Err(err) => match err.decode_contract_revert::<EscrowErrors>() {
-                // We may encounter this condition if the subgraph is behind.
-                Some(EscrowErrors::SignerAlreadyAuthorized { .. }) => (),
-                Some(revert) => {
-                    return Err(anyhow!("Revert({revert:?})").context("authorize signer"));
-                }
-                None => {
-                    return Err(anyhow!(err).context("authorize signer"));
-                }
-            },
-        };
-        tracing::info!(signer = %signer.address(), "authorized");
+            let deadline_offset_s = 60;
+            let deadline = U256::from(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + deadline_offset_s,
+            );
+            let mut proof_message = [0u8; 84];
+            proof_message[0..32].copy_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
+            proof_message[32..64].copy_from_slice(&deadline.to_be_bytes::<32>());
+            proof_message[64..].copy_from_slice(&sender.address().0.abi_encode_packed());
+            let hash = keccak256(proof_message);
+            let signature = signer
+                .sign_message_sync(hash.as_slice())
+                .context("sign authorization proof")?;
+            let proof: Bytes = signature.as_bytes().into();
+            escrow
+                .authorizeSigner(signer.address(), deadline, proof)
+                .send()
+                .await
+                .context("authorize signer send")?
+                .watch()
+                .await
+                .context("authorize signer")?;
+            tracing::info!(signer = %signer.address(), "authorized");
+        }
     }
 
     let allowance = token
-        .allowance(sender.address(), escrow.address())
+        .allowance(sender.address(), *escrow.address())
+        .call()
         .await
-        .context("get allowance")?;
+        .context("get allowance")?
+        ._0;
     let expected_allowance = U256::from(config.grt_allowance as u128 * GRT);
-    tracing::info!(allowance = allowance.as_u128() as f64 * 1e-18);
+    tracing::info!(allowance = f64::from(allowance) * 1e-18);
     if allowance < expected_allowance {
-        let tx = token.approve(escrow.address(), expected_allowance);
-        let pending = tx.send().await.context("approve")?;
-        pending.await.context("approve pending")?;
+        token
+            .approve(*escrow.address(), expected_allowance)
+            .send()
+            .await
+            .context("approve send")?
+            .watch()
+            .await
+            .context("approve")?;
     }
-    let allowance = token
-        .allowance(sender.address(), escrow.address())
+    let allowance: u128 = token
+        .allowance(sender.address(), *escrow.address())
+        .call()
         .await
-        .context("get allowance")?;
-    tracing::info!(allowance = allowance.as_u128() as f64 * 1e-18);
+        .context("get allowance")?
+        ._0
+        .saturating_to();
+    tracing::info!(allowance = allowance as f64 * 1e-18);
 
-    // let signers = conf
-    let debts = track_receipts(&config.kafka, config.graph_env)
+    let signers = signers.into_iter().map(|s| s.address()).collect();
+    let debts = track_receipts(&config.kafka, signers)
         .await
         .context("failed to start kafka client")?;
 
@@ -174,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &sender_address).await {
+        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &sender.address()).await {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {
                 tracing::error!(%escrow_accounts_err);
@@ -212,35 +215,34 @@ async fn main() -> anyhow::Result<()> {
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
         if total_adjustment > 0 {
-            let receivers: Vec<ethers::abi::Address> = adjustments
-                .iter()
-                .map(|(r, _)| ethers::abi::Address::from(r.0 .0))
-                .collect();
-            let amounts: Vec<ethers::types::U256> =
-                adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
-            let tx = escrow.deposit_many(receivers, amounts);
+            let receivers: Vec<Address> = adjustments.iter().map(|(r, _)| *r).collect();
+            let amounts: Vec<U256> = adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
+            let tx = escrow.depositMany(receivers, amounts);
             let pending = match tx.send().await {
                 Ok(pending) => pending,
                 Err(contract_call_err) => {
-                    let revert = contract_call_err.decode_contract_revert::<EscrowErrors>();
-                    tracing::error!(?revert, %contract_call_err);
+                    tracing::error!(%contract_call_err);
                     continue;
                 }
             };
-            let completion = match pending.await {
-                Ok(completion) => completion,
+            let receipt = match pending
+                .with_timeout(Some(Duration::from_secs(20)))
+                .get_receipt()
+                .await
+            {
+                Ok(receipt) => receipt,
                 Err(pending_tx_err) => {
                     tracing::error!(%pending_tx_err);
                     continue;
                 }
             };
-            if let Some(latest_block) = completion.and_then(|c| c.block_number) {
+            if let Some(latest_block) = receipt.block_number {
                 escrow_subgraph = SubgraphClient::builder(
                     escrow_subgraph.http_client,
                     escrow_subgraph.subgraph_url,
                 )
                 .with_auth_token(Some(config.query_auth.clone()))
-                .with_subgraph_latest_block(latest_block.as_u64())
+                .with_subgraph_latest_block(latest_block)
                 .build();
             }
 
