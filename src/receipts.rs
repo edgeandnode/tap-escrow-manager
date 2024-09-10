@@ -1,14 +1,14 @@
 use std::{collections::BTreeMap, fs::File, io::Write as _, path::PathBuf};
 
 use anyhow::Context as _;
-use chrono::{serde::ts_milliseconds, DateTime, Duration, Utc};
-use ethers::providers::StreamExt;
+use chrono::{DateTime, Duration, Utc};
+use ethers::{providers::StreamExt, utils::hex::ToHex};
 use flate2::{read::GzDecoder, write::GzEncoder};
+use prost::Message as _;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     Message,
 };
-use serde::Deserialize;
 use thegraph_core::types::alloy_primitives::Address;
 use tokio::sync::{mpsc, watch};
 
@@ -16,7 +16,7 @@ use crate::config;
 
 pub async fn track_receipts(
     config: &config::Kafka,
-    graph_env: String,
+    signers: Vec<Address>,
 ) -> anyhow::Result<watch::Receiver<BTreeMap<Address, u128>>> {
     let window = Duration::days(28);
     let (tx, rx) = watch::channel(Default::default());
@@ -38,7 +38,7 @@ pub async fn track_receipts(
     consumer.subscribe(&[&config.topic])?;
 
     tokio::spawn(async move {
-        if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, graph_env).await {
+        if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, signers).await {
             tracing::error!(%kafka_consumer_err);
         }
     });
@@ -49,7 +49,7 @@ pub async fn track_receipts(
 async fn process_messages(
     consumer: &mut StreamConsumer,
     db: mpsc::Sender<Update>,
-    graph_env: String,
+    signers: Vec<Address>,
 ) -> anyhow::Result<()> {
     consumer
         .stream()
@@ -65,30 +65,36 @@ async fn process_messages(
                 Some(payload) => payload,
                 None => return,
             };
-            #[derive(Deserialize)]
+            let timestamp = msg
+                .timestamp()
+                .to_millis()
+                .and_then(|t| DateTime::from_timestamp(t / 1_000, (t % 1_000) as u32 * 1_000))
+                .unwrap_or_else(Utc::now);
+            #[derive(prost::Message)]
             struct Payload {
-                #[serde(with = "ts_milliseconds")]
-                timestamp: DateTime<Utc>,
-                graph_env: String,
-                indexer: Address,
-                fee: f64,
-                #[serde(default)]
-                legacy_scalar: bool,
+                /// 20 bytes (address)
+                #[prost(bytes, tag = "1")]
+                signer: Vec<u8>,
+                /// 20 bytes (address)
+                #[prost(bytes, tag = "2")]
+                receiver: Vec<u8>,
+                #[prost(double, tag = "3")]
+                fee_grt: f64,
             }
-            let payload: Payload = match serde_json::from_reader(payload) {
+            let payload = match Payload::decode(payload) {
                 Ok(payload) => payload,
                 Err(payload_parse_err) => {
-                    tracing::error!(%payload_parse_err, input = %String::from_utf8_lossy(payload));
+                    tracing::error!(%payload_parse_err, input = payload.encode_hex::<String>());
                     return;
                 }
             };
-            if payload.legacy_scalar || (payload.graph_env != graph_env) {
+            if !signers.contains(&Address::from_slice(&payload.signer)) {
                 return;
             }
             let update = Update {
-                timestamp: payload.timestamp,
-                indexer: payload.indexer,
-                fee: (payload.fee * 1e18) as u128,
+                timestamp,
+                indexer: Address::from_slice(&payload.receiver),
+                fee: (payload.fee_grt * 1e18) as u128,
             };
             let _ = db.send(update).await;
         })
