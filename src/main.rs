@@ -152,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
         .context("get allowance")?;
     tracing::info!(allowance = allowance.as_u128() as f64 * 1e-18);
 
+    // let signers = conf
     let debts = track_receipts(&config.kafka, config.graph_env)
         .await
         .context("failed to start kafka client")?;

@@ -11,6 +11,7 @@ chrono = { version = "0.4.34", default-features = false, features = [
 ] }
 ethers = "2.0.14"
 flate2 = "1.0.31"
+prost = "0.13.2"
 rdkafka = { version = "0.36.0", features = [
   "cmake-build",
   "gssapi",
