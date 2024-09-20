@@ -17,7 +17,9 @@ The sender address used for tap-escrow-manager expects authorizedSigners:
 - Sender: Requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
 - Authorized signer: Used by the gateway and tap-aggregator to sign receipts and RAVs
 
-## Setting up Authorized Signers
+The tap-escrow-manager will automatically setup authorized signers set in the configuration on startup. This requires the secret keys for the authorized signer wallets to be present in the `signers` config field.
+
+## Setting up Authorized Signers Manually
 
 To set up authorized signers for tap-escrow-manager:
 
