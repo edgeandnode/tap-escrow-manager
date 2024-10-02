@@ -45,7 +45,6 @@ sol!(
 
 const GRT: u128 = 1_000_000_000_000_000_000;
 const MIN_DEPOSIT: u128 = 2 * GRT;
-const MAX_DEPOSIT: u128 = 10_000 * GRT;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -253,13 +252,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn next_balance(debt: u128) -> u128 {
     let mut next_round = (MIN_DEPOSIT / GRT) as u32;
-    if debt >= MAX_DEPOSIT {
-        return MAX_DEPOSIT;
-    }
     while (debt as f64) >= ((next_round as u128 * GRT) as f64 * 0.6) {
         next_round = next_round.saturating_mul(2);
     }
-    (next_round as u128 * GRT).min(MAX_DEPOSIT)
+    next_round as u128 * GRT
 }
 
 async fn authorized_signers(
@@ -373,7 +369,7 @@ async fn escrow_accounts(
 
 #[cfg(test)]
 mod tests {
-    use super::{GRT, MAX_DEPOSIT, MIN_DEPOSIT};
+    use super::{GRT, MIN_DEPOSIT};
 
     #[test]
     fn next_balance() {
@@ -386,12 +382,6 @@ mod tests {
             (30 * GRT, 64 * GRT),
             (70 * GRT, 128 * GRT),
             (100 * GRT, 256 * GRT),
-            (MAX_DEPOSIT, MAX_DEPOSIT),
-            (MAX_DEPOSIT + GRT, MAX_DEPOSIT),
-            (1_000_000 * GRT, MAX_DEPOSIT),
-            (u128::MAX, MAX_DEPOSIT),
-            (MAX_DEPOSIT - 1, MAX_DEPOSIT),
-            (MAX_DEPOSIT - GRT, MAX_DEPOSIT),
         ];
         for (debt, expected) in tests {
             assert_eq!(super::next_balance(debt), expected);
