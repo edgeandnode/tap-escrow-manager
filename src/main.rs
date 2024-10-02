@@ -204,7 +204,7 @@ async fn main() -> anyhow::Result<()> {
                     ?receiver,
                     balance_grt = (balance as f64) / (GRT as f64),
                     debt_grt = (debt as f64) / (GRT as f64),
-                    adjustment_grt = (next_balance as f64) / (GRT as f64),
+                    adjustment_grt = (adjustment as f64) / (GRT as f64),
                 );
                 Some((receiver, adjustment))
             })
