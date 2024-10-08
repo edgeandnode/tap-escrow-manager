@@ -4,14 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy = { version = "0.4.0", features = [
-  "contract",
-  "signer-local",
-] }
+alloy = { version = "0.4.0", features = ["contract", "signer-local"] }
 anyhow = "1.0.75"
-chrono = { version = "0.4.34", default-features = false, features = [
-  "clock",
-] }
+chrono = { version = "0.4.34", default-features = false, features = ["clock"] }
 flate2 = "1.0.31"
 futures-util = "0.3.30"
 prost = "0.13.2"
@@ -25,7 +20,7 @@ serde = { version = "1.0.190", features = ["derive"] }
 serde_json = { version = "1.0.108", features = ["raw_value"] }
 serde_with = "3.4.0"
 snmalloc-rs = "0.3.4"
-thegraph-core = { version = "0.6.0", features = ["subgraph-client"] }
+thegraph-core = { version = "0.7.0", features = ["subgraph-client"] }
 tokio = { version = "1.32.0", default-features = false, features = [
   "macros",
   "rt-multi-thread",
