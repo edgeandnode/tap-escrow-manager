@@ -1,9 +1,7 @@
-use std::{collections::BTreeMap, fs::File, io::Write as _, path::PathBuf};
+use std::collections::BTreeMap;
 
 use alloy::{hex::ToHexExt as _, primitives::Address};
-use anyhow::Context as _;
 use chrono::{DateTime, Duration, Utc};
-use flate2::{read::GzDecoder, write::GzEncoder};
 use futures_util::StreamExt as _;
 use prost::Message as _;
 use rdkafka::{
@@ -20,7 +18,7 @@ pub async fn track_receipts(
 ) -> anyhow::Result<watch::Receiver<BTreeMap<Address, u128>>> {
     let window = Duration::days(28);
     let (tx, rx) = watch::channel(Default::default());
-    let db = DB::spawn(config.cache.clone(), window, tx).context("failed to init DB")?;
+    let db = DB::spawn(window, tx);
 
     let mut client_config = rdkafka::ClientConfig::new();
     client_config.extend(config.config.clone().into_iter());
@@ -35,7 +33,7 @@ pub async fn track_receipts(
         }
     }
     let mut consumer: StreamConsumer = client_config.create()?;
-    consumer.subscribe(&[&config.topic])?;
+    consumer.subscribe(&[&config.realtime_topic])?;
 
     tokio::spawn(async move {
         if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, signers).await {
@@ -111,78 +109,55 @@ struct Update {
 struct DB {
     // indexer debts, aggregated per hour
     data: BTreeMap<Address, BTreeMap<i64, u128>>,
-    file: PathBuf,
     window: Duration,
     tx: watch::Sender<BTreeMap<Address, u128>>,
 }
 
 impl DB {
     pub fn spawn(
-        file: PathBuf,
         window: Duration,
         tx: watch::Sender<BTreeMap<Address, u128>>,
-    ) -> anyhow::Result<mpsc::Sender<Update>> {
-        let cache = File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&file)
-            .context("open cache file")?;
-        let data = match serde_json::from_reader(GzDecoder::new(&cache)) {
-            Ok(data) => data,
-            Err(cache_err) => {
-                tracing::error!(%cache_err);
-                Default::default()
-            }
-        };
-        drop(cache);
-        let mut db = DB {
-            data,
-            file,
+    ) -> mpsc::Sender<Update> {
+        let mut db = Self {
+            data: Default::default(),
             window,
             tx,
         };
-        db.prune(Utc::now());
-
         let (tx, mut rx) = mpsc::channel(128);
         tokio::spawn(async move {
-            let mut last_flush = Utc::now();
             let mut last_snapshot = Utc::now();
-            let mut message_total: usize = 0;
+            let mut last_log = last_snapshot;
+            let mut message_count: usize = 0;
             let buffer_size = 128;
             let mut buffer: Vec<Update> = Vec::with_capacity(buffer_size);
             loop {
                 rx.recv_many(&mut buffer, buffer_size).await;
                 let now = Utc::now();
-                message_total += buffer.len();
+                message_count += buffer.len();
                 for update in buffer.drain(..) {
                     db.update(update, now);
                 }
 
                 if (now - last_snapshot) >= Duration::seconds(1) {
-                    let _ = db.tx.send(db.snapshot());
-                    last_snapshot = now;
-                }
-                if (now - last_flush) >= Duration::minutes(1) {
                     db.prune(now);
-                    if let Err(flush_err) = db.flush() {
-                        tracing::error!(%flush_err);
-                    };
-                    let debts: BTreeMap<Address, f64> = db
-                        .snapshot()
-                        .into_iter()
-                        .map(|(k, v)| (k, v as f64 * 1e-18))
-                        .collect();
-                    let update_hz = message_total / (now - last_flush).num_seconds() as usize;
-                    tracing::info!(update_hz, ?debts);
-                    message_total = 0;
-                    last_flush = now;
+                    let snapshot = db.snapshot();
+
+                    if (now - last_log) >= Duration::minutes(1) {
+                        let update_hz = message_count / (now - last_log).num_seconds() as usize;
+                        let debts: BTreeMap<&Address, f64> = snapshot
+                            .iter()
+                            .map(|(k, v)| (k, *v as f64 * 1e-18))
+                            .collect();
+                        tracing::info!(update_hz, ?debts);
+                        last_log = now;
+                    }
+
+                    let _ = db.tx.send(snapshot);
+                    last_snapshot = now;
                 }
             }
         });
-
-        Ok(tx)
+        tx
     }
 
     fn update(&mut self, update: Update, now: DateTime<Utc>) {
@@ -204,14 +179,6 @@ impl DB {
             entries.retain(|t, _| *t > min_timestamp);
             !entries.is_empty()
         });
-    }
-
-    fn flush(&mut self) -> anyhow::Result<()> {
-        let mut file = File::create(&self.file)?;
-        let gz = GzEncoder::new(file.try_clone().unwrap(), flate2::Compression::new(4));
-        serde_json::to_writer(gz, &self.data)?;
-        file.flush()?;
-        Ok(())
     }
 
     fn snapshot(&self) -> BTreeMap<Address, u128> {
