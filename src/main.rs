@@ -1,22 +1,17 @@
 mod config;
+mod contracts;
 mod receipts;
 
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
-use alloy::{
-    network::EthereumWallet,
-    primitives::{keccak256, Address, Bytes, U256},
-    providers::{Provider, ProviderBuilder},
-    signers::{local::PrivateKeySigner, SignerSync},
-    sol,
-    sol_types::SolValue,
-};
+use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol};
 use anyhow::{anyhow, bail, Context};
 use config::Config;
+use contracts::Contracts;
 use serde::Deserialize;
 use serde_with::serde_as;
 use thegraph_core::client::{Client as SubgraphClient, PaginatedQueryError};
@@ -61,19 +56,17 @@ async fn main() -> anyhow::Result<()> {
 
     let sender = PrivateKeySigner::from_bytes(&config.secret_key)?;
     tracing::info!(sender = %sender.address());
+    let contracts = Contracts::new(
+        sender,
+        config.rpc_url.clone(),
+        config.grt_contract,
+        config.escrow_contract,
+    );
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .unwrap();
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(EthereumWallet::from(sender.clone()))
-        .on_http(config.rpc_url.clone());
-    let chain_id = provider.get_chain_id().await.context("get chain ID")?;
-    let escrow = Escrow::new(config.escrow_contract, provider.clone());
-    let token = ERC20::new(config.grt_contract, provider.clone());
-
     let mut network_subgraph = SubgraphClient::builder(http.clone(), config.network_subgraph)
         .with_auth_token(Some(config.query_auth.clone()))
         .build();
@@ -89,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
     let signers = signers;
 
     if config.authorize_signers {
-        let authorized_signers = authorized_signers(&mut escrow_subgraph, &sender.address())
+        let authorized_signers = authorized_signers(&mut escrow_subgraph, &contracts.sender())
             .await
             .context("fetch authorized signers")?;
         for signer in &signers {
@@ -98,60 +91,18 @@ async fn main() -> anyhow::Result<()> {
             if authorized {
                 continue;
             }
-            let deadline_offset_s = 60;
-            let deadline = U256::from(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + deadline_offset_s,
-            );
-            let mut proof_message = [0u8; 84];
-            proof_message[0..32].copy_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
-            proof_message[32..64].copy_from_slice(&deadline.to_be_bytes::<32>());
-            proof_message[64..].copy_from_slice(&sender.address().0.abi_encode_packed());
-            let hash = keccak256(proof_message);
-            let signature = signer
-                .sign_message_sync(hash.as_slice())
-                .context("sign authorization proof")?;
-            let proof: Bytes = signature.as_bytes().into();
-            escrow
-                .authorizeSigner(signer.address(), deadline, proof)
-                .send()
-                .await
-                .context("authorize signer send")?
-                .watch()
-                .await
-                .context("authorize signer")?;
+            contracts.authorize_signer(signer).await?;
             tracing::info!(signer = %signer.address(), "authorized");
         }
     }
 
-    let allowance = token
-        .allowance(sender.address(), *escrow.address())
-        .call()
-        .await
-        .context("get allowance")?
-        ._0;
-    let expected_allowance = U256::from(config.grt_allowance as u128 * GRT);
-    tracing::info!(allowance = f64::from(allowance) * 1e-18);
+    let allowance = contracts.allowance().await?;
+    let expected_allowance = config.grt_allowance as u128 * GRT;
+    tracing::info!(allowance = allowance as f64 * 1e-18);
     if allowance < expected_allowance {
-        token
-            .approve(*escrow.address(), expected_allowance)
-            .send()
-            .await
-            .context("approve send")?
-            .watch()
-            .await
-            .context("approve")?;
+        contracts.approve(expected_allowance).await?;
     }
-    let allowance: u128 = token
-        .allowance(sender.address(), *escrow.address())
-        .call()
-        .await
-        .context("get allowance")?
-        ._0
-        .saturating_to();
+    let allowance = contracts.allowance().await?;
     tracing::info!(allowance = allowance as f64 * 1e-18);
 
     let signers = signers.into_iter().map(|s| s.address()).collect();
@@ -176,7 +127,8 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &sender.address()).await {
+        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &contracts.sender()).await
+        {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {
                 tracing::error!(%escrow_accounts_err);
@@ -214,36 +166,18 @@ async fn main() -> anyhow::Result<()> {
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
         if total_adjustment > 0 {
-            let receivers: Vec<Address> = adjustments.iter().map(|(r, _)| *r).collect();
-            let amounts: Vec<U256> = adjustments.iter().map(|(_, a)| U256::from(*a)).collect();
-            let tx = escrow.depositMany(receivers, amounts);
-            let pending = match tx.send().await {
-                Ok(pending) => pending,
-                Err(contract_call_err) => {
-                    tracing::error!(%contract_call_err);
+            let tx_block = match contracts.deposit_many(adjustments).await {
+                Ok(block) => block,
+                Err(deposit_err) => {
+                    tracing::error!(%deposit_err);
                     continue;
                 }
             };
-            let receipt = match pending
-                .with_timeout(Some(Duration::from_secs(20)))
-                .get_receipt()
-                .await
-            {
-                Ok(receipt) => receipt,
-                Err(pending_tx_err) => {
-                    tracing::error!(%pending_tx_err);
-                    continue;
-                }
-            };
-            if let Some(latest_block) = receipt.block_number {
-                escrow_subgraph = SubgraphClient::builder(
-                    escrow_subgraph.http_client,
-                    escrow_subgraph.subgraph_url,
-                )
-                .with_auth_token(Some(config.query_auth.clone()))
-                .with_subgraph_latest_block(latest_block)
-                .build();
-            }
+            escrow_subgraph =
+                SubgraphClient::builder(escrow_subgraph.http_client, escrow_subgraph.subgraph_url)
+                    .with_auth_token(Some(config.query_auth.clone()))
+                    .with_subgraph_latest_block(tx_block)
+                    .build();
 
             tracing::info!("adjustments complete");
         }
