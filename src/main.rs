@@ -52,7 +52,6 @@ async fn main() -> anyhow::Result<()> {
         .map_err(anyhow::Error::from)
         .and_then(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
         .context("failed to load config")?;
-    tracing::info!("{config:#?}");
 
     let sender = PrivateKeySigner::from_bytes(&config.secret_key)?;
     tracing::info!(sender = %sender.address());
