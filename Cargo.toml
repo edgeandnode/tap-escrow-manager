@@ -7,7 +7,6 @@ edition = "2021"
 alloy = { version = "0.4.0", features = ["contract", "signer-local"] }
 anyhow = "1.0.75"
 chrono = { version = "0.4.34", default-features = false, features = ["clock"] }
-flate2 = "1.0.31"
 futures-util = "0.3.30"
 prost = "0.13.2"
 rdkafka = { version = "0.36.0", features = [
