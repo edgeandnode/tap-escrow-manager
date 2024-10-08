@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt, ops::Deref, path::PathBuf, str::FromStr};
+use std::{collections::BTreeMap, fmt, ops::Deref, str::FromStr};
 
 use alloy::primitives::{Address, B256};
 use reqwest::Url;
@@ -43,8 +43,8 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct Kafka {
     pub config: Hidden<BTreeMap<String, String>>,
-    pub cache: PathBuf,
-    pub topic: String,
+    pub realtime_topic: String,
+    pub aggregated_topic: String,
 }
 
 #[derive(Deserialize)]
