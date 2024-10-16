@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use alloy::{hex::ToHexExt as _, primitives::Address};
+use anyhow::{anyhow, Context};
 use chrono::{DateTime, Duration, Utc};
 use futures_util::StreamExt as _;
 use prost::Message as _;
@@ -8,6 +9,7 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     Message,
 };
+use titorelli::kafka::{assign_partitions, latest_messages};
 use tokio::sync::{mpsc, watch};
 
 use crate::config;
@@ -20,21 +22,64 @@ pub async fn track_receipts(
     let (tx, rx) = watch::channel(Default::default());
     let db = DB::spawn(window, tx);
 
-    let mut client_config = rdkafka::ClientConfig::new();
-    client_config.extend(config.config.clone().into_iter());
+    let mut consumer_config = rdkafka::ClientConfig::from_iter(config.config.clone());
     let defaults = [
         ("group.id", "tap-escrow-manager"),
         ("enable.auto.commit", "true"),
-        ("auto.offset.reset", "earliest"),
+        ("enable.auto.offset.store", "true"),
     ];
     for (key, value) in defaults {
-        if !client_config.config_map().contains_key(key) {
-            client_config.set(key, value);
+        if !consumer_config.config_map().contains_key(key) {
+            consumer_config.set(key, value);
         }
     }
-    let mut consumer: StreamConsumer = client_config.create()?;
-    consumer.subscribe(&[&config.realtime_topic])?;
+    let mut consumer: StreamConsumer = consumer_config.create()?;
 
+    let start_timestamp = hourly_timestamp(Utc::now() - window);
+    if let Some(aggregated_topic) = &config.aggregated_topic {
+        let latest_aggregated_messages = latest_messages(&consumer, &[aggregated_topic]).await?;
+        let mut latest_aggregated_offsets: BTreeMap<String, i64> = latest_aggregated_messages
+            .into_iter()
+            .map(|msg| (format!("{}/{}", msg.topic(), msg.partition()), msg.offset()))
+            .collect();
+        assign_partitions(&consumer, &[aggregated_topic], start_timestamp).await?;
+        let mut latest_aggregated_timestamp = 0;
+        let mut stream = consumer.stream();
+        while let Some(msg) = stream.next().await {
+            let msg = msg?;
+            let partition = format!("{}/{}", msg.topic(), msg.partition());
+            let offset = msg.offset();
+            let payload = msg
+                .payload()
+                .with_context(|| anyhow!("missing payload at {partition} {offset}"))?;
+            let msg = IndexerFeesHourlyProtobuf::decode(payload)?;
+            latest_aggregated_timestamp = latest_aggregated_timestamp.max(msg.timestamp);
+            for aggregation in &msg.aggregations {
+                if !signers.contains(&Address::from_slice(&aggregation.signer)) {
+                    continue;
+                }
+                let update = Update {
+                    timestamp: DateTime::from_timestamp_millis(msg.timestamp)
+                        .context("timestamp out of range")?,
+                    indexer: Address::from_slice(&aggregation.receiver),
+                    fee: (aggregation.fee_grt * 1e18) as u128,
+                };
+                db.send(update).await.unwrap();
+            }
+
+            if latest_aggregated_offsets.get(&partition).unwrap() == &offset {
+                latest_aggregated_offsets.remove(&partition);
+                if latest_aggregated_offsets.is_empty() {
+                    break;
+                }
+            }
+        }
+        consumer.unassign()?;
+        let realtime_start = latest_aggregated_timestamp + Duration::hours(1).num_milliseconds();
+        assign_partitions(&consumer, &[&config.realtime_topic], realtime_start).await?;
+    } else {
+        assign_partitions(&consumer, &[&config.realtime_topic], start_timestamp).await?;
+    }
     tokio::spawn(async move {
         if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, signers).await {
             tracing::error!(%kafka_consumer_err);
@@ -42,6 +87,27 @@ pub async fn track_receipts(
     });
 
     Ok(rx)
+}
+
+#[derive(prost::Message)]
+struct IndexerFeesProtobuf {
+    /// 20 bytes (address)
+    #[prost(bytes, tag = "1")]
+    signer: Vec<u8>,
+    /// 20 bytes (address)
+    #[prost(bytes, tag = "2")]
+    receiver: Vec<u8>,
+    #[prost(double, tag = "3")]
+    fee_grt: f64,
+}
+
+#[derive(prost::Message)]
+struct IndexerFeesHourlyProtobuf {
+    /// start timestamp for aggregation, in unix milliseconds
+    #[prost(int64, tag = "1")]
+    timestamp: i64,
+    #[prost(message, repeated, tag = "2")]
+    aggregations: Vec<IndexerFeesProtobuf>,
 }
 
 async fn process_messages(
@@ -68,18 +134,7 @@ async fn process_messages(
                 .to_millis()
                 .and_then(|t| DateTime::from_timestamp(t / 1_000, (t % 1_000) as u32 * 1_000))
                 .unwrap_or_else(Utc::now);
-            #[derive(prost::Message)]
-            struct Payload {
-                /// 20 bytes (address)
-                #[prost(bytes, tag = "1")]
-                signer: Vec<u8>,
-                /// 20 bytes (address)
-                #[prost(bytes, tag = "2")]
-                receiver: Vec<u8>,
-                #[prost(double, tag = "3")]
-                fee_grt: f64,
-            }
-            let payload = match Payload::decode(payload) {
+            let payload = match IndexerFeesProtobuf::decode(payload) {
                 Ok(payload) => payload,
                 Err(payload_parse_err) => {
                     tracing::error!(%payload_parse_err, input = payload.encode_hex());

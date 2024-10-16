@@ -44,4 +44,5 @@ pub struct Config {
 pub struct Kafka {
     pub config: BTreeMap<String, String>,
     pub realtime_topic: String,
+    pub aggregated_topic: Option<String>,
 }
