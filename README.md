@@ -7,13 +7,13 @@ The following data sources are monitored to guide the allocation of GRT into the
 - [Graph Network Subgraph](https://github.com/graphprotocol/graph-network-subgraph)
 - [TAP Subgraph](https://github.com/semiotic-ai/timeline-aggregation-protocol-subgraph)
 - The gateway's Kafka topic for indexer query reports, to account for outstanding debts from receipts sent to indexers
-  - Note: Kafka messages are processed for the past 28 days (Escrow `withdrawEscrowThawingPeriod`). Daily aggregations are stored to a file to avoid reprocessing on restart.
 
 # Configuration
 
 Configuration options are set via a single JSON file. The structure of the file is defined in [src/config.rs](src/config.rs).
 
 The sender address used for tap-escrow-manager expects authorizedSigners:
+
 - Sender: Requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
 - Authorized signer: Used by the gateway and tap-aggregator to sign receipts and RAVs
 
@@ -38,7 +38,7 @@ const ethers = require('ethers');
 
 async function generateProof(signerPrivateKey, proofDeadline, senderAddress, chainId) {
     const signer = new ethers.Wallet(signerPrivateKey);
-    
+
     const messageHash = ethers.solidityPackedKeccak256(
         ['uint256', 'uint256', 'address'],
         [chainId, proofDeadline, senderAddress]
@@ -73,6 +73,7 @@ EOL
 echo "Setup complete. Run the script with:"
 echo "node generateProof.js <authorizedSignerPrivateKey> <senderAddress> <chainId>"
 ```
+
 6. Pass signerAddress, proofDeadline, and proof to the contract and sign the transaction. Repeat if using multiple authorisedSigners
 
 # Logs
