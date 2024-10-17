@@ -100,9 +100,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(allowance = allowance as f64 * 1e-18);
     if allowance < expected_allowance {
         contracts.approve(expected_allowance).await?;
+        let allowance = contracts.allowance().await?;
+        tracing::info!(allowance = allowance as f64 * 1e-18);
     }
-    let allowance = contracts.allowance().await?;
-    tracing::info!(allowance = allowance as f64 * 1e-18);
 
     let signers = signers.into_iter().map(|s| s.address()).collect();
     let debts = track_receipts(&config.kafka, signers)
