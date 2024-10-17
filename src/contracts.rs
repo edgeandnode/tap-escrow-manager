@@ -4,15 +4,14 @@ use std::{
 };
 
 use alloy::{
-    hex,
     network::EthereumWallet,
-    primitives::{keccak256, Address, BlockNumber, Bytes, FixedBytes, U256},
+    primitives::{keccak256, Address, BlockNumber, Bytes, U256},
     providers::{self, Provider as _, ProviderBuilder, WalletProvider},
     signers::{local::PrivateKeySigner, SignerSync as _},
     sol_types::SolValue as _,
     transports::http::Http,
 };
-use anyhow::{anyhow, ensure, Context as _};
+use anyhow::{anyhow, Context as _};
 use reqwest::Url;
 
 use crate::{Escrow::EscrowInstance, ERC20::ERC20Instance};
@@ -73,8 +72,7 @@ impl Contracts {
     }
 
     pub async fn approve(&self, amount: u128) -> anyhow::Result<()> {
-        let result = self
-            .token
+        self.token
             .approve(self.sender(), U256::from(amount))
             .send()
             .await
@@ -83,11 +81,8 @@ impl Contracts {
             .with_required_confirmations(2)
             .watch()
             .await
-            .context("approve")?;
-        let success: FixedBytes<32> =
-            hex!("0000000000000000000000000000000000000000000000000000000000000001").into();
-        ensure!(result == success);
-        Ok(())
+            .context("approve")
+            .map(|_| ())
     }
 
     pub async fn deposit_many(
