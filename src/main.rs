@@ -192,7 +192,9 @@ async fn main() -> anyhow::Result<()> {
 fn next_balance(debt: u128) -> u128 {
     let mut next_round = (MIN_DEPOSIT / GRT) as u32;
     while (debt as f64) >= ((next_round as u128 * GRT) as f64 * 0.6) {
-        next_round = next_round.saturating_mul(2);
+        next_round = next_round
+            .saturating_mul(2)
+            .min(next_round + (MAX_ADJUSTMENT / GRT) as u32);
     }
     next_round as u128 * GRT
 }
