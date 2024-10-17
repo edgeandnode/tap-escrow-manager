@@ -122,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
         let mut receivers = match active_indexers(&mut network_subgraph).await {
             Ok(receivers) => receivers,
             Err(active_indexers_err) => {
-                tracing::error!(%active_indexers_err);
+                tracing::error!("{:#}", active_indexers_err.context("active indexers"));
                 continue;
             }
         };
@@ -130,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {
-                tracing::error!(%escrow_accounts_err);
+                tracing::error!("{:#}", escrow_accounts_err.context("escrow accounts"));
                 continue;
             }
         };
@@ -168,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
             let tx_block = match contracts.deposit_many(adjustments).await {
                 Ok(block) => block,
                 Err(deposit_err) => {
-                    tracing::error!(%deposit_err);
+                    tracing::error!("{:#}", deposit_err.context("deposit"));
                     continue;
                 }
             };
