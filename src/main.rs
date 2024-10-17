@@ -3,7 +3,7 @@ mod contracts;
 mod receipts;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     env, fs,
     time::Duration,
 };
@@ -40,6 +40,7 @@ sol!(
 
 const GRT: u128 = 1_000_000_000_000_000_000;
 const MIN_DEPOSIT: u128 = 2 * GRT;
+const MAX_ADJUSTMENT: u128 = 10_000 * GRT;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -165,6 +166,11 @@ async fn main() -> anyhow::Result<()> {
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
         if total_adjustment > 0 {
+            let adjustments = if total_adjustment <= MAX_ADJUSTMENT {
+                adjustments
+            } else {
+                reduce_adjustments(adjustments)
+            };
             let tx_block = match contracts.deposit_many(adjustments).await {
                 Ok(block) => block,
                 Err(deposit_err) => {
@@ -189,6 +195,24 @@ fn next_balance(debt: u128) -> u128 {
         next_round = next_round.saturating_mul(2);
     }
     next_round as u128 * GRT
+}
+
+fn reduce_adjustments(adjustments: Vec<(Address, u128)>) -> Vec<(Address, u128)> {
+    let desired: BTreeMap<Address, u128> = adjustments.into_iter().collect();
+    assert!(desired.values().sum::<u128>() > MAX_ADJUSTMENT);
+    let mut adjustments: BTreeMap<Address, u128> =
+        desired.keys().map(|r| (*r, MIN_DEPOSIT)).collect();
+    loop {
+        for (receiver, desired_value) in &desired {
+            let adjustment_value = adjustments.entry(*receiver).or_default();
+            if *adjustment_value < *desired_value {
+                *adjustment_value = (*desired_value).min(*adjustment_value + (100 * GRT));
+            }
+            if adjustments.values().sum::<u128>() >= MAX_ADJUSTMENT {
+                return adjustments.into_iter().collect();
+            }
+        }
+    }
 }
 
 async fn authorized_signers(
