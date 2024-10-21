@@ -131,7 +131,11 @@ async fn main() -> anyhow::Result<()> {
         {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {
-                tracing::error!("{:#}", escrow_accounts_err.context("escrow accounts"));
+                if escrow_accounts_err.to_string().contains("missing block") {
+                    tracing::warn!("{:#}", escrow_accounts_err.context("escrow accounts"));
+                } else {
+                    tracing::error!("{:#}", escrow_accounts_err.context("escrow accounts"));
+                }
                 continue;
             }
         };
