@@ -194,13 +194,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn next_balance(debt: u128) -> u128 {
-    let mut next_round = (MIN_DEPOSIT / GRT) as u32;
-    while (debt as f64) >= ((next_round as u128 * GRT) as f64 * 0.6) {
-        next_round = next_round
-            .saturating_mul(2)
-            .min(next_round + (MAX_ADJUSTMENT / GRT) as u32);
-    }
-    next_round as u128 * GRT
+    todo!();
 }
 
 fn reduce_adjustments(adjustments: Vec<(Address, u128)>) -> Vec<(Address, u128)> {
@@ -336,18 +330,6 @@ mod tests {
 
     #[test]
     fn next_balance() {
-        let tests = [
-            (0, MIN_DEPOSIT),
-            (GRT, MIN_DEPOSIT),
-            (MIN_DEPOSIT / 2, MIN_DEPOSIT),
-            (MIN_DEPOSIT, MIN_DEPOSIT * 2),
-            (MIN_DEPOSIT + 1, MIN_DEPOSIT * 2),
-            (30 * GRT, 64 * GRT),
-            (70 * GRT, 128 * GRT),
-            (100 * GRT, 256 * GRT),
-        ];
-        for (debt, expected) in tests {
-            assert_eq!(super::next_balance(debt), expected);
-        }
+        todo!();
     }
 }
