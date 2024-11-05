@@ -3,6 +3,5 @@
 /.vscode
 
 ## Rust
-/.config/
 **/*.rs.bk
 /target/
