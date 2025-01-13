@@ -14,7 +14,7 @@ use config::Config;
 use contracts::Contracts;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph_core::client::{Client as SubgraphClient, PaginatedQueryError};
+use thegraph_client_subgraphs::{Client as SubgraphClient, PaginatedQueryError};
 use tokio::{
     select,
     time::{interval, MissedTickBehavior},
