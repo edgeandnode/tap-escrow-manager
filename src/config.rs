@@ -40,6 +40,7 @@ pub struct Config {
     pub update_interval_seconds: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct Kafka {
     pub config: BTreeMap<String, String>,

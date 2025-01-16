@@ -22,9 +22,6 @@ use tokio::{
 
 use crate::receipts::track_receipts;
 
-#[global_allocator]
-static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
-
 sol!(
     #[allow(missing_docs)]
     #[sol(rpc)]
