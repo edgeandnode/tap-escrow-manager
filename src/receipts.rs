@@ -125,8 +125,6 @@ pub struct IndexerQueryProtobuf {
     pub indexer: Vec<u8>,
     #[prost(double, tag = "6")]
     pub fee_grt: f64,
-    #[prost(bool, optional, tag = "12")]
-    pub legacy_scalar: Option<bool>,
 }
 
 async fn process_messages(
@@ -164,9 +162,6 @@ async fn process_messages(
                 return;
             }
             for indexer_query in payload.indexer_queries {
-                if indexer_query.legacy_scalar.unwrap_or(false) {
-                    continue;
-                }
                 let update = Update {
                     timestamp,
                     indexer: Address::from_slice(&indexer_query.indexer),
