@@ -3,14 +3,18 @@ mod contracts;
 mod receipts;
 mod subgraphs;
 
-use std::{collections::BTreeMap, env, fs, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    env, fs,
+    time::Duration,
+};
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol};
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, Context as _};
 use config::Config;
 use contracts::Contracts;
 use receipts::track_receipts;
-use subgraphs::{active_indexers, authorized_signers, escrow_accounts};
+use subgraphs::{active_allocations, authorized_signers, escrow_accounts};
 use thegraph_client_subgraphs::Client as SubgraphClient;
 use tokio::{
     select,
@@ -101,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let signers = signers.into_iter().map(|s| s.address()).collect();
-    let debts = track_receipts(&config.kafka, signers)
+    let receipts = track_receipts(&config.kafka, signers)
         .await
         .context("failed to start kafka client")?;
 
@@ -111,17 +115,18 @@ async fn main() -> anyhow::Result<()> {
     loop {
         select! {
             _ = interval.tick() => (),
-            _ = tokio::signal::ctrl_c() => bail!("exit"),
-            _ = sigterm.recv() => bail!("exit"),
+            _ = tokio::signal::ctrl_c() => anyhow::bail!("exit"),
+            _ = sigterm.recv() => anyhow::bail!("exit"),
         };
 
-        let mut receivers = match active_indexers(&mut network_subgraph).await {
-            Ok(receivers) => receivers,
-            Err(active_indexers_err) => {
-                tracing::error!("{:#}", active_indexers_err.context("active indexers"));
+        let allocations = match active_allocations(&mut network_subgraph).await {
+            Ok(allocations) => allocations,
+            Err(active_allocations_err) => {
+                tracing::error!("{:#}", active_allocations_err.context("active allocations"));
                 continue;
             }
         };
+        let mut receivers: HashSet<Address> = allocations.iter().map(|a| a.indexer).collect();
         let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &contracts.sender()).await
         {
             Ok(escrow_accounts) => escrow_accounts,
@@ -137,7 +142,26 @@ async fn main() -> anyhow::Result<()> {
         receivers.extend(escrow_accounts.keys());
         tracing::debug!(receivers = receivers.len());
 
-        let debts = debts.borrow();
+        let mut indexer_ravs: HashMap<Address, u128> = Default::default();
+        {
+            let allocation_ravs: HashMap<Address, u128> = Default::default(); // TODO: borrow receiver
+            for allocation in allocations {
+                if let Some(value) = allocation_ravs.get(&allocation.id) {
+                    *indexer_ravs.entry(allocation.indexer).or_default() += *value;
+                }
+            }
+        }
+
+        let mut debts: HashMap<Address, u128> = Default::default();
+        {
+            let receipts = receipts.borrow();
+            for receiver in &receivers {
+                let receipts = *receipts.get(receiver).unwrap_or(&0);
+                let ravs = *indexer_ravs.get(receiver).unwrap_or(&0);
+                debts.insert(*receiver, u128::max(receipts, ravs));
+            }
+        };
+
         let adjustments: Vec<(Address, u128)> = receivers
             .into_iter()
             .filter_map(|receiver| {
@@ -160,7 +184,6 @@ async fn main() -> anyhow::Result<()> {
                 Some((receiver, adjustment))
             })
             .collect();
-        drop(debts);
 
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
