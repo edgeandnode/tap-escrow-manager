@@ -5,7 +5,6 @@ mod subgraphs;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    env, fs,
     time::Duration,
 };
 
@@ -44,10 +43,10 @@ const MAX_ADJUSTMENT: u128 = 10_000 * GRT;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let config_file = env::args()
+    let config_file = std::env::args()
         .nth(1)
         .ok_or_else(|| anyhow!("missing config file argument"))?;
-    let config: Config = fs::read_to_string(config_file)
+    let config: Config = std::fs::read_to_string(config_file)
         .map_err(anyhow::Error::from)
         .and_then(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
         .context("failed to load config")?;

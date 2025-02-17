@@ -1,8 +1,8 @@
-use crate::config;
-use rdkafka::consumer::StreamConsumer;
-
 pub use ravs::ravs;
+use rdkafka::consumer::StreamConsumer;
 pub use receipts::receipts;
+
+use crate::config;
 
 fn consumer(config: &config::Kafka) -> anyhow::Result<StreamConsumer> {
     let mut consumer_config = rdkafka::ClientConfig::from_iter(config.config.clone());
@@ -20,8 +20,8 @@ fn consumer(config: &config::Kafka) -> anyhow::Result<StreamConsumer> {
 }
 
 mod receipts {
-    use super::consumer;
-    use crate::config;
+    use std::collections::BTreeMap;
+
     use alloy::{hex::ToHexExt as _, primitives::Address};
     use anyhow::{anyhow, Context as _};
     use chrono::{DateTime, Duration, Utc};
@@ -31,9 +31,11 @@ mod receipts {
         consumer::{Consumer as _, StreamConsumer},
         Message as _,
     };
-    use std::collections::BTreeMap;
     use titorelli::kafka::{assign_partitions, latest_messages};
     use tokio::sync::{mpsc, watch};
+
+    use super::consumer;
+    use crate::config;
 
     pub async fn receipts(
         config: &config::Kafka,
@@ -281,15 +283,17 @@ mod receipts {
 }
 
 mod ravs {
-    use super::consumer;
-    use crate::config;
+    use std::collections::BTreeMap;
+
     use alloy::primitives::Address;
     use anyhow::Context as _;
     use futures_util::StreamExt as _;
     use rdkafka::{consumer::StreamConsumer, Message as _};
-    use std::collections::BTreeMap;
     use titorelli::kafka::assign_partitions;
     use tokio::sync::watch;
+
+    use super::consumer;
+    use crate::config;
 
     pub async fn ravs(
         config: &config::Kafka,
