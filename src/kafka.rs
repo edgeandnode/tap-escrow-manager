@@ -213,14 +213,11 @@ mod receipts {
             let (tx, mut rx) = mpsc::channel(128);
             tokio::spawn(async move {
                 let mut last_snapshot = Utc::now();
-                let mut last_log = last_snapshot;
-                let mut message_count: usize = 0;
                 let buffer_size = 128;
                 let mut buffer: Vec<Update> = Vec::with_capacity(buffer_size);
                 loop {
                     rx.recv_many(&mut buffer, buffer_size).await;
                     let now = Utc::now();
-                    message_count += buffer.len();
                     for update in buffer.drain(..) {
                         db.update(update, now);
                     }
@@ -228,16 +225,6 @@ mod receipts {
                     if (now - last_snapshot) >= Duration::seconds(1) {
                         db.prune(now);
                         let snapshot = db.snapshot();
-
-                        if (now - last_log) >= Duration::minutes(1) {
-                            let update_hz = message_count / (now - last_log).num_seconds() as usize;
-                            let debts: BTreeMap<&Address, f64> = snapshot
-                                .iter()
-                                .map(|(k, v)| (k, *v as f64 * 1e-18))
-                                .collect();
-                            tracing::info!(update_hz, ?debts);
-                            last_log = now;
-                        }
 
                         let _ = db.tx.send(snapshot);
                         last_snapshot = now;

@@ -4,7 +4,7 @@ mod kafka;
 mod subgraphs;
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     time::Duration,
 };
 
@@ -127,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        let mut receivers: HashSet<Address> = allocations.iter().map(|a| a.indexer).collect();
+        let mut receivers: BTreeSet<Address> = allocations.iter().map(|a| a.indexer).collect();
         let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &contracts.sender()).await
         {
             Ok(escrow_accounts) => escrow_accounts,
@@ -143,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
         receivers.extend(escrow_accounts.keys());
         tracing::debug!(receivers = receivers.len());
 
-        let mut indexer_ravs: HashMap<Address, u128> = Default::default();
+        let mut indexer_ravs: BTreeMap<Address, u128> = Default::default();
         {
             let allocation_ravs = ravs.borrow();
             for allocation in allocations {
@@ -153,13 +153,18 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        let mut debts: HashMap<Address, u128> = Default::default();
+        let mut debts: BTreeMap<Address, u128> = Default::default();
         {
             let receipts = receipts.borrow();
             for receiver in &receivers {
                 let receipts = *receipts.get(receiver).unwrap_or(&0);
                 let ravs = *indexer_ravs.get(receiver).unwrap_or(&0);
                 debts.insert(*receiver, u128::max(receipts, ravs));
+                tracing::info!(
+                    %receiver,
+                    receipts = %format!("{:.2}", receipts as f64 * 1e-18),
+                    ravs = %format!("{:.2}", ravs as f64 * 1e-18),
+                );
             }
         };
 
