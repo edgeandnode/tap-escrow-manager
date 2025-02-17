@@ -3,12 +3,13 @@ mod contracts;
 mod receipts;
 mod subgraphs;
 
+use std::{collections::BTreeMap, env, fs, time::Duration};
+
 use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol};
 use anyhow::{anyhow, bail, Context};
 use config::Config;
 use contracts::Contracts;
 use receipts::track_receipts;
-use std::{collections::BTreeMap, env, fs, time::Duration};
 use subgraphs::{active_indexers, authorized_signers, escrow_accounts};
 use thegraph_client_subgraphs::Client as SubgraphClient;
 use tokio::{
