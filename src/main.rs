@@ -1,6 +1,6 @@
 mod config;
 mod contracts;
-mod receipts;
+mod kafka;
 mod subgraphs;
 
 use std::{
@@ -13,7 +13,6 @@ use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol};
 use anyhow::{anyhow, Context as _};
 use config::Config;
 use contracts::Contracts;
-use receipts::track_receipts;
 use subgraphs::{active_allocations, authorized_signers, escrow_accounts};
 use thegraph_client_subgraphs::Client as SubgraphClient;
 use tokio::{
@@ -105,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let signers = signers.into_iter().map(|s| s.address()).collect();
-    let receipts = track_receipts(&config.kafka, signers)
+    let receipts = kafka::receipts(&config.kafka, signers)
         .await
         .context("failed to start kafka client")?;
 
