@@ -1,26 +1,20 @@
 mod config;
 mod contracts;
 mod receipts;
-
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    env, fs,
-    time::Duration,
-};
+mod subgraphs;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol};
 use anyhow::{anyhow, bail, Context};
 use config::Config;
 use contracts::Contracts;
-use serde::Deserialize;
-use serde_with::serde_as;
-use thegraph_client_subgraphs::{Client as SubgraphClient, PaginatedQueryError};
+use receipts::track_receipts;
+use std::{collections::BTreeMap, env, fs, time::Duration};
+use subgraphs::{active_indexers, authorized_signers, escrow_accounts};
+use thegraph_client_subgraphs::Client as SubgraphClient;
 use tokio::{
     select,
     time::{interval, MissedTickBehavior},
 };
-
-use crate::receipts::track_receipts;
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
@@ -218,115 +212,6 @@ fn reduce_adjustments(adjustments: Vec<(Address, u128)>) -> Vec<(Address, u128)>
                 return adjustments.into_iter().collect();
             }
         }
-    }
-}
-
-async fn authorized_signers(
-    escrow_subgraph: &mut SubgraphClient,
-    sender: &Address,
-) -> anyhow::Result<Vec<Address>> {
-    #[derive(Deserialize)]
-    struct Data {
-        sender: Option<Sender>,
-    }
-    #[derive(Deserialize)]
-    struct Sender {
-        signers: Vec<Signer>,
-    }
-    #[derive(Deserialize)]
-    struct Signer {
-        id: Address,
-    }
-    let data = escrow_subgraph
-        .query::<Data>(format!(
-            r#"{{ sender(id:"{sender:?}") {{ signers {{ id }} }} }}"#,
-        ))
-        .await
-        .map_err(|err| anyhow!(err))?;
-    let signers = data
-        .sender
-        .into_iter()
-        .flat_map(|s| s.signers)
-        .map(|s| s.id)
-        .collect();
-    Ok(signers)
-}
-
-async fn active_indexers(
-    network_subgraph: &mut SubgraphClient,
-) -> anyhow::Result<HashSet<Address>> {
-    let query = r#"
-        indexers(
-            block: $block
-            orderBy: id
-            orderDirection: asc
-            first: $first
-            where: {
-                id_gt: $last
-                allocationCount_gt: 0
-            }
-        ) {
-            id
-        }
-    "#;
-    #[derive(Deserialize)]
-    struct Indexer {
-        id: Address,
-    }
-    Ok(network_subgraph
-        .paginated_query::<Indexer>(query, 500)
-        .await
-        .map_err(|err| anyhow!(err))?
-        .into_iter()
-        .map(|i| i.id)
-        .collect())
-}
-
-async fn escrow_accounts(
-    escrow_subgraph: &mut SubgraphClient,
-    sender: &Address,
-) -> anyhow::Result<HashMap<Address, u128>> {
-    let query = format!(
-        r#"
-        escrowAccounts(
-            block: $block
-            orderBy: id
-            orderDirection: asc
-            first: $first
-            where: {{
-                id_gt: $last
-                sender: "{sender:?}"
-            }}
-        ) {{
-            id
-            balance
-            receiver {{
-                id
-            }}
-        }}
-        "#
-    );
-    #[serde_as]
-    #[derive(Deserialize)]
-    struct EscrowAccount {
-        #[serde_as(as = "serde_with::DisplayFromStr")]
-        balance: u128,
-        receiver: Receiver,
-    }
-    #[derive(Deserialize)]
-    struct Receiver {
-        id: Address,
-    }
-    let response = escrow_subgraph
-        .paginated_query::<EscrowAccount>(query, 500)
-        .await;
-    match response {
-        Ok(accounts) => Ok(accounts
-            .into_iter()
-            .map(|a| (a.receiver.id, a.balance))
-            .collect()),
-        Err(PaginatedQueryError::EmptyResponse) => Ok(Default::default()),
-        Err(err) => Err(anyhow!(err)),
     }
 }
 
