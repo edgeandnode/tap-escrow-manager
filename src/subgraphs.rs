@@ -1,7 +1,8 @@
+use std::collections::{HashMap, HashSet};
+
 use alloy::primitives::Address;
 use anyhow::anyhow;
 use serde_with::serde_as;
-use std::collections::{HashMap, HashSet};
 use thegraph_client_subgraphs::{Client as SubgraphClient, PaginatedQueryError};
 
 pub async fn authorized_signers(
