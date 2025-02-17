@@ -103,10 +103,13 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(allowance = allowance as f64 * 1e-18);
     }
 
-    let signers = signers.into_iter().map(|s| s.address()).collect();
-    let receipts = kafka::receipts(&config.kafka, signers)
+    let signers: Vec<Address> = signers.into_iter().map(|s| s.address()).collect();
+    let receipts = kafka::receipts(&config.kafka, signers.clone())
         .await
-        .context("failed to start kafka client")?;
+        .context("failed to start receipts consumer")?;
+    let ravs = kafka::ravs(&config.kafka, signers)
+        .await
+        .context("failed to start RAVs consumer")?;
 
     let mut interval = interval(Duration::from_secs(config.update_interval_seconds as u64));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -143,7 +146,7 @@ async fn main() -> anyhow::Result<()> {
 
         let mut indexer_ravs: HashMap<Address, u128> = Default::default();
         {
-            let allocation_ravs: HashMap<Address, u128> = Default::default(); // TODO: borrow receiver
+            let allocation_ravs = ravs.borrow();
             for allocation in allocations {
                 if let Some(value) = allocation_ravs.get(&allocation.id) {
                     *indexer_ravs.entry(allocation.indexer).or_default() += *value;

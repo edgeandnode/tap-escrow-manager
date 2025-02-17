@@ -1,9 +1,26 @@
-use chrono::{DateTime, Duration, Utc};
+use crate::config;
+use rdkafka::consumer::StreamConsumer;
 
+pub use ravs::ravs;
 pub use receipts::receipts;
 
+fn consumer(config: &config::Kafka) -> anyhow::Result<StreamConsumer> {
+    let mut consumer_config = rdkafka::ClientConfig::from_iter(config.config.clone());
+    let defaults = [
+        ("group.id", "tap-escrow-manager"),
+        ("enable.auto.commit", "true"),
+        ("enable.auto.offset.store", "true"),
+    ];
+    for (key, value) in defaults {
+        if !consumer_config.config_map().contains_key(key) {
+            consumer_config.set(key, value);
+        }
+    }
+    Ok(consumer_config.create()?)
+}
+
 mod receipts {
-    use super::hourly_timestamp;
+    use super::consumer;
     use crate::config;
     use alloy::{hex::ToHexExt as _, primitives::Address};
     use anyhow::{anyhow, Context as _};
@@ -25,19 +42,7 @@ mod receipts {
         let window = Duration::days(28);
         let (tx, rx) = watch::channel(Default::default());
         let db = DB::spawn(window, tx);
-
-        let mut consumer_config = rdkafka::ClientConfig::from_iter(config.config.clone());
-        let defaults = [
-            ("group.id", "tap-escrow-manager"),
-            ("enable.auto.commit", "true"),
-            ("enable.auto.offset.store", "true"),
-        ];
-        for (key, value) in defaults {
-            if !consumer_config.config_map().contains_key(key) {
-                consumer_config.set(key, value);
-            }
-        }
-        let mut consumer: StreamConsumer = consumer_config.create()?;
+        let mut consumer = consumer(config)?;
 
         let start_timestamp = hourly_timestamp(Utc::now() - window);
         if let Some(aggregated_topic) = &config.aggregated_topic {
@@ -268,9 +273,92 @@ mod receipts {
                 .collect()
         }
     }
+
+    fn hourly_timestamp(t: DateTime<Utc>) -> i64 {
+        let t = t.timestamp();
+        t - (t % Duration::hours(1).num_seconds())
+    }
 }
 
-fn hourly_timestamp(t: DateTime<Utc>) -> i64 {
-    let t = t.timestamp();
-    t - (t % Duration::hours(1).num_seconds())
+mod ravs {
+    use super::consumer;
+    use crate::config;
+    use alloy::primitives::Address;
+    use anyhow::Context as _;
+    use futures_util::StreamExt as _;
+    use rdkafka::{consumer::StreamConsumer, Message as _};
+    use std::collections::BTreeMap;
+    use titorelli::kafka::assign_partitions;
+    use tokio::sync::watch;
+
+    pub async fn ravs(
+        config: &config::Kafka,
+        signers: Vec<Address>,
+    ) -> anyhow::Result<watch::Receiver<BTreeMap<Address, u128>>> {
+        let (tx, rx) = watch::channel(Default::default());
+        let mut consumer = consumer(config)?;
+        assign_partitions(&consumer, &["gateway_ravs"], 0).await?;
+        tokio::spawn(async move { process_messages(&mut consumer, tx, signers).await });
+        Ok(rx)
+    }
+
+    async fn process_messages(
+        consumer: &mut StreamConsumer,
+        tx: watch::Sender<BTreeMap<Address, u128>>,
+        signers: Vec<Address>,
+    ) {
+        consumer
+            .stream()
+            .for_each_concurrent(16, |msg| async {
+                let msg = match msg {
+                    Ok(msg) => msg,
+                    Err(recv_error) => {
+                        tracing::error!(%recv_error);
+                        return;
+                    }
+                };
+                let record = match parse_record(msg) {
+                    Ok(record) => record,
+                    Err(record_parse_err) => {
+                        tracing::error!(%record_parse_err);
+                        return;
+                    }
+                };
+                if !signers.contains(&record.signer) {
+                    return;
+                }
+                tx.send_if_modified(|map| {
+                    match map.entry(record.receiver) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(record.value);
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut entry)
+                            if *entry.get() < record.value =>
+                        {
+                            entry.insert(record.value);
+                        }
+                        _ => return false,
+                    };
+                    true
+                });
+            })
+            .await;
+    }
+
+    struct Record {
+        signer: Address,
+        receiver: Address,
+        value: u128,
+    }
+
+    fn parse_record(msg: rdkafka::message::BorrowedMessage) -> anyhow::Result<Record> {
+        let key = String::from_utf8_lossy(msg.key().context("missing key")?);
+        let payload = String::from_utf8_lossy(msg.payload().context("missing payload")?);
+        let (signer, receiver) = key.split_once(':').context("malformed key")?;
+        Ok(Record {
+            signer: signer.parse()?,
+            receiver: receiver.parse()?,
+            value: payload.parse()?,
+        })
+    }
 }
