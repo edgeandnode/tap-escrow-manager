@@ -24,7 +24,7 @@ pub async fn track_receipts(
 
     let mut consumer_config = rdkafka::ClientConfig::from_iter(config.config.clone());
     let defaults = [
-        ("group.id", "tap-escrow-manager"),
+        ("group.id", "tap-escrow-manager-testing"),
         ("enable.auto.commit", "true"),
         ("enable.auto.offset.store", "true"),
     ];
@@ -80,12 +80,7 @@ pub async fn track_receipts(
     } else {
         assign_partitions(&consumer, &[&config.realtime_topic], start_timestamp).await?;
     }
-    tokio::spawn(async move {
-        if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, signers).await {
-            tracing::error!(%kafka_consumer_err);
-        }
-    });
-
+    tokio::spawn(async move { process_messages(&mut consumer, db, signers).await });
     Ok(rx)
 }
 
@@ -131,7 +126,7 @@ async fn process_messages(
     consumer: &mut StreamConsumer,
     db: mpsc::Sender<Update>,
     signers: Vec<Address>,
-) -> anyhow::Result<()> {
+) {
     consumer
         .stream()
         .for_each_concurrent(16, |msg| async {
@@ -171,7 +166,6 @@ async fn process_messages(
             }
         })
         .await;
-    Ok(())
 }
 
 struct Update {

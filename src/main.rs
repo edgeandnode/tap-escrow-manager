@@ -1,5 +1,6 @@
 mod config;
 mod contracts;
+mod ravs;
 mod receipts;
 
 use std::{
