@@ -76,11 +76,11 @@ impl Contracts {
 
     pub async fn approve(&self, amount: u128) -> anyhow::Result<()> {
         self.token
-            .approve(self.sender(), U256::from(amount))
+            .approve(*self.escrow.address(), U256::from(amount))
             .send()
             .await?
             .with_timeout(Some(Duration::from_secs(30)))
-            .with_required_confirmations(2)
+            .with_required_confirmations(1)
             .watch()
             .await?;
         Ok(())
@@ -101,7 +101,7 @@ impl Contracts {
             .await
             .map_err(decoded_err::<EscrowErrors>)?
             .with_timeout(Some(Duration::from_secs(30)))
-            .with_required_confirmations(2)
+            .with_required_confirmations(1)
             .get_receipt()
             .await?;
         let block_number = receipt
@@ -141,7 +141,7 @@ impl Contracts {
             .await
             .map_err(decoded_err::<EscrowErrors>)?
             .with_timeout(Some(Duration::from_secs(60)))
-            .with_required_confirmations(2)
+            .with_required_confirmations(1)
             .watch()
             .await?;
         Ok(())

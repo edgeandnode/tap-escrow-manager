@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let allowance = contracts.allowance().await?;
+    let mut allowance = contracts.allowance().await?;
     let expected_allowance = config.grt_allowance as u128 * GRT;
     tracing::info!(allowance = allowance as f64 * 1e-18);
     if allowance < expected_allowance {
@@ -102,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
             .approve(expected_allowance)
             .await
             .context("approve")?;
-        let allowance = contracts.allowance().await?;
+        allowance = contracts.allowance().await?;
         tracing::info!(allowance = allowance as f64 * 1e-18);
     }
 
