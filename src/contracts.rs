@@ -8,13 +8,16 @@ use alloy::{
     primitives::{keccak256, Address, BlockNumber, Bytes, U256},
     providers::{self, Provider as _, ProviderBuilder, WalletProvider},
     signers::{local::PrivateKeySigner, SignerSync as _},
-    sol_types::SolValue as _,
+    sol_types::{SolInterface, SolValue as _},
     transports::http::Http,
 };
 use anyhow::{anyhow, Context as _};
 use reqwest::Url;
 
-use crate::{Escrow::EscrowInstance, ERC20::ERC20Instance};
+use crate::{
+    Escrow::{EscrowErrors, EscrowInstance},
+    ERC20::ERC20Instance,
+};
 
 // TODO: figure out how to erase this type
 type Provider = providers::fillers::FillProvider<
@@ -75,14 +78,12 @@ impl Contracts {
         self.token
             .approve(self.sender(), U256::from(amount))
             .send()
-            .await
-            .context("approve send")?
+            .await?
             .with_timeout(Some(Duration::from_secs(30)))
             .with_required_confirmations(2)
             .watch()
-            .await
-            .context("approve")
-            .map(|_| ())
+            .await?;
+        Ok(())
     }
 
     pub async fn deposit_many(
@@ -98,12 +99,11 @@ impl Contracts {
             .depositMany(receivers, amounts)
             .send()
             .await
-            .context("deposit send")?
+            .map_err(decoded_err::<EscrowErrors>)?
             .with_timeout(Some(Duration::from_secs(30)))
             .with_required_confirmations(2)
             .get_receipt()
-            .await
-            .context("deposit")?;
+            .await?;
         let block_number = receipt
             .block_number
             .ok_or_else(|| anyhow!("invalid deposit receipt"))?;
@@ -139,13 +139,23 @@ impl Contracts {
             .authorizeSigner(signer.address(), deadline, proof)
             .send()
             .await
-            .context("authorize signer send")?
+            .map_err(decoded_err::<EscrowErrors>)?
             .with_timeout(Some(Duration::from_secs(60)))
             .with_required_confirmations(2)
             .watch()
-            .await
-            .context("authorize signer")?;
-
+            .await?;
         Ok(())
+    }
+}
+
+fn decoded_err<E: SolInterface + std::fmt::Debug>(err: alloy::contract::Error) -> anyhow::Error {
+    match err {
+        alloy::contract::Error::TransportError(alloy::transports::RpcError::ErrorResp(err)) => {
+            match err.as_decoded_error::<E>(false) {
+                Some(decoded) => anyhow!("{:?}", decoded),
+                None => anyhow!(err),
+            }
+        }
+        _ => anyhow!(err),
     }
 }

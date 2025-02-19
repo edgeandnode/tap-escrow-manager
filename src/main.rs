@@ -29,6 +29,7 @@ sol!(
 sol!(
     #[allow(missing_docs)]
     #[sol(rpc)]
+    #[derive(Debug)]
     Escrow,
     "src/abi/Escrow.abi.json"
 );
@@ -86,8 +87,10 @@ async fn main() -> anyhow::Result<()> {
             if authorized {
                 continue;
             }
-            contracts.authorize_signer(signer).await?;
-            tracing::info!(signer = %signer.address(), "authorized");
+            match contracts.authorize_signer(signer).await {
+                Ok(()) => tracing::info!(signer = %signer.address(), "authorized"),
+                Err(err) => tracing::error!("failed to authorize signer: {err:#}"),
+            };
         }
     }
 
@@ -95,7 +98,10 @@ async fn main() -> anyhow::Result<()> {
     let expected_allowance = config.grt_allowance as u128 * GRT;
     tracing::info!(allowance = allowance as f64 * 1e-18);
     if allowance < expected_allowance {
-        contracts.approve(expected_allowance).await?;
+        contracts
+            .approve(expected_allowance)
+            .await
+            .context("approve")?;
         let allowance = contracts.allowance().await?;
         tracing::info!(allowance = allowance as f64 * 1e-18);
     }
