@@ -8,16 +8,27 @@ use alloy::{
     primitives::{keccak256, Address, BlockNumber, Bytes, U256},
     providers::{self, Provider as _, ProviderBuilder, WalletProvider},
     signers::{local::PrivateKeySigner, SignerSync as _},
+    sol,
     sol_types::{SolInterface, SolValue as _},
-    transports::http::Http,
 };
 use anyhow::{anyhow, Context as _};
 use reqwest::Url;
 
-use crate::{
-    Escrow::{EscrowErrors, EscrowInstance},
-    ERC20::ERC20Instance,
-};
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    ERC20,
+    "src/abi/ERC20.abi.json"
+);
+use ERC20::ERC20Instance;
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    #[derive(Debug)]
+    Escrow,
+    "src/abi/Escrow.abi.json"
+);
+use Escrow::{EscrowErrors, EscrowInstance};
 
 // TODO: figure out how to erase this type
 type Provider = providers::fillers::FillProvider<
@@ -37,20 +48,17 @@ type Provider = providers::fillers::FillProvider<
         >,
         providers::fillers::WalletFiller<EthereumWallet>,
     >,
-    providers::RootProvider<Http<reqwest::Client>>,
-    Http<reqwest::Client>,
-    alloy::network::Ethereum,
+    providers::RootProvider,
 >;
 
 pub struct Contracts {
-    escrow: EscrowInstance<Http<reqwest::Client>, Arc<Provider>>,
-    token: ERC20Instance<Http<reqwest::Client>, Arc<Provider>>,
+    escrow: EscrowInstance<(), Arc<Provider>>,
+    token: ERC20Instance<(), Arc<Provider>>,
 }
 
 impl Contracts {
     pub fn new(sender: PrivateKeySigner, chain_rpc: Url, token: Address, escrow: Address) -> Self {
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(sender))
             .on_http(chain_rpc);
         let provider = Arc::new(provider);
@@ -151,7 +159,7 @@ impl Contracts {
 fn decoded_err<E: SolInterface + std::fmt::Debug>(err: alloy::contract::Error) -> anyhow::Error {
     match err {
         alloy::contract::Error::TransportError(alloy::transports::RpcError::ErrorResp(err)) => {
-            match err.as_decoded_error::<E>(false) {
+            match err.as_decoded_interface_error::<E>() {
                 Some(decoded) => anyhow!("{:?}", decoded),
                 None => anyhow!(err),
             }

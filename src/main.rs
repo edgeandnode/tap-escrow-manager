@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol};
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{anyhow, Context as _};
 use config::Config;
 use contracts::Contracts;
@@ -21,20 +21,6 @@ use tokio::{
 
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
-
-sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    ERC20,
-    "src/abi/ERC20.abi.json"
-);
-sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    #[derive(Debug)]
-    Escrow,
-    "src/abi/Escrow.abi.json"
-);
 
 const GRT: u128 = 1_000_000_000_000_000_000;
 const MIN_DEPOSIT: u128 = 2 * GRT;
