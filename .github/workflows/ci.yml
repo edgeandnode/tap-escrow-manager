@@ -1,8 +1,12 @@
-name: ci
+name: CI
+
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -11,7 +15,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  RUSTFLAGS: '-C link-arg=-fuse-ld=lld -D warnings'
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld -D warnings"
 
 jobs:
   test:
