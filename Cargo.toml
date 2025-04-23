@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy = { version = "0.12.6", features = ["contract", "signer-local"] }
+alloy = { version = "0.15.0", features = ["contract", "signer-local"] }
 anyhow = "1.0.75"
 chrono = { version = "0.4.34", default-features = false, features = ["clock"] }
 futures-util = "0.3.30"
@@ -19,7 +19,7 @@ serde = { version = "1.0.190", features = ["derive"] }
 serde_json = { version = "1.0.108", features = ["raw_value"] }
 serde_with = "3.4.0"
 snmalloc-rs = "0.3.4"
-thegraph-client-subgraphs = "0.1.4"
+thegraph-client-subgraphs = "0.2.0"
 titorelli = { git = "https://github.com/edgeandnode/titorelli.git", rev = "4c14fc1" }
 tokio = { version = "1.32.0", default-features = false, features = [
     "macros",

@@ -52,15 +52,15 @@ type Provider = providers::fillers::FillProvider<
 >;
 
 pub struct Contracts {
-    escrow: EscrowInstance<(), Arc<Provider>>,
-    token: ERC20Instance<(), Arc<Provider>>,
+    escrow: EscrowInstance<Arc<Provider>>,
+    token: ERC20Instance<Arc<Provider>>,
 }
 
 impl Contracts {
     pub fn new(sender: PrivateKeySigner, chain_rpc: Url, token: Address, escrow: Address) -> Self {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(sender))
-            .on_http(chain_rpc);
+            .connect_http(chain_rpc);
         let provider = Arc::new(provider);
         let escrow = EscrowInstance::new(escrow, provider.clone());
         let token = ERC20Instance::new(token, provider.clone());
@@ -77,7 +77,6 @@ impl Contracts {
             .call()
             .await
             .context("get allowance")?
-            ._0
             .try_into()
             .context("result out of bounds")
     }
