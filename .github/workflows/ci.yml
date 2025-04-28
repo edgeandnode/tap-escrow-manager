@@ -30,7 +30,7 @@ jobs:
           components: clippy
 
       - name: Cache Cargo build files
-        uses: Leafwing-Studios/cargo-cache@6c2a159aab4b3ba20f083d241bb1f26b35262b99 # v2
+        uses: Leafwing-Studios/cargo-cache@43ec9a5bad6e7f174e7fc65dcf533de75ff65881 # v2
 
       - name: Prepare build env
         run: sudo apt-get install -y lld libsasl2-dev
