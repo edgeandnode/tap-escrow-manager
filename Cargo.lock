@@ -56,9 +56,9 @@ dependencies = [
 
 [[package]]
 name = "alloy"
-version = "0.15.0"
+version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84e1e751d45ff814b1f2183100bb7f8101951a394f89769575494c0d078cc915"
+checksum = "2b064bd1cea105e70557a258cd2b317731896753ec08edf51da2d1fced587b05"
 dependencies = [
  "alloy-consensus 0.15.0",
  "alloy-contract 0.15.0",
@@ -3797,7 +3797,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 name = "tap-escrow-manager"
 version = "0.1.0"
 dependencies = [
- "alloy 0.15.0",
+ "alloy 0.15.11",
  "anyhow",
  "chrono",
  "futures-util",
