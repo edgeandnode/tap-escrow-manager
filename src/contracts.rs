@@ -1,12 +1,9 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
     network::EthereumWallet,
     primitives::{keccak256, Address, BlockNumber, Bytes, U256},
-    providers::{self, Provider as _, ProviderBuilder, WalletProvider},
+    providers::{DynProvider, Provider as _, ProviderBuilder, WalletProvider},
     signers::{local::PrivateKeySigner, SignerSync as _},
     sol,
     sol_types::{SolInterface, SolValue as _},
@@ -30,30 +27,10 @@ sol!(
 );
 use Escrow::{EscrowErrors, EscrowInstance};
 
-// TODO: figure out how to erase this type
-type Provider = providers::fillers::FillProvider<
-    providers::fillers::JoinFill<
-        providers::fillers::JoinFill<
-            providers::Identity,
-            providers::fillers::JoinFill<
-                providers::fillers::GasFiller,
-                providers::fillers::JoinFill<
-                    providers::fillers::BlobGasFiller,
-                    providers::fillers::JoinFill<
-                        providers::fillers::NonceFiller,
-                        providers::fillers::ChainIdFiller,
-                    >,
-                >,
-            >,
-        >,
-        providers::fillers::WalletFiller<EthereumWallet>,
-    >,
-    providers::RootProvider,
->;
-
 pub struct Contracts {
-    escrow: EscrowInstance<Arc<Provider>>,
-    token: ERC20Instance<Arc<Provider>>,
+    escrow: EscrowInstance<DynProvider>,
+    token: ERC20Instance<DynProvider>,
+    sender: Address,
 }
 
 impl Contracts {
@@ -61,14 +38,19 @@ impl Contracts {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(sender))
             .connect_http(chain_rpc);
-        let provider = Arc::new(provider);
+        let sender = provider.default_signer_address();
+        let provider = provider.erased();
         let escrow = EscrowInstance::new(escrow, provider.clone());
         let token = ERC20Instance::new(token, provider.clone());
-        Self { escrow, token }
+        Self {
+            escrow,
+            token,
+            sender,
+        }
     }
 
     pub fn sender(&self) -> Address {
-        self.token.provider().default_signer_address()
+        self.sender
     }
 
     pub async fn allowance(&self) -> anyhow::Result<u128> {
