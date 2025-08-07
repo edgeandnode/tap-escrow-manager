@@ -8,29 +8,40 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
 **Components Being Updated:**
 1. Graph Network Subgraph - Upgraded with new schema
 2. TAP Escrow Subgraph - Deprecated (functionality merged into Graph Network Subgraph)
-3. TAP Escrow Contract - New contract with updated interfaces
+3. TAP Escrow Contract - Completely new contract architecture (PaymentsEscrow + GraphTallyCollector)
 
 **Components Unchanged:**
 - ERC20/GRT Contract
 - Kafka infrastructure and message formats
 - Core business logic
 
-### Task Breakdown
+### Research & Planning
 
-**Phase 1: Research & Analysis**
-1. **Analyze Graph Network Subgraph changes**
-   - Understand new schema and entities
-   - Identify how escrow data is now stored
+**Phase 1: Technical Analysis** ✅ **COMPLETE**
+1. **Analyze Graph Network Subgraph changes** ✅
+   - New entities: `PaymentsEscrowAccount`, `Payer`, `Signer`, `Receiver`, `PaymentsEscrowTransaction`
+   - Escrow data now tracked with three-tier structure: payer → collector → receiver
+   - Event handlers: `handleDeposit`, `handleWithdraw`, `handleThaw`, `handleCancelThaw`
    
-2. **Map TAP Escrow Subgraph functionality to Graph Network Subgraph**
-   - Map `authorized_signers()` query to new schema
-   - Map `escrow_accounts()` query to new schema
+2. **Map TAP Escrow Subgraph functionality to Graph Network Subgraph** ✅
+   - `authorized_signers()`: 
+     - OLD: `{ sender(id:"<address>") { signers { id } } }`
+     - NEW: `{ payer(id:"<address>") { signers { id } } }`
+   - `escrow_accounts()`:
+     - OLD: `escrowAccounts(where: { sender: "<address>" }) { balance, receiver { id } }`
+     - NEW: `paymentsEscrowAccounts(where: { payer: "<address>" }) { balance, receiver { id } }`
    
-3. **Analyze new TAP Escrow Contract interface changes**
-   - Document new method signatures
-   - Identify parameter and return type changes
-   - Note any new required methods
+3. **Analyze new TAP Escrow Contract interface changes** ✅
+   - **Architecture Split**: 
+     - PaymentsEscrow: Fund management (`deposit`, `depositTo`, `thaw`, `withdraw`)
+     - GraphTallyCollector: Authorization & collection (`collect`, signer validation)
+   - **Key Functions**:
+     - `deposit(address collector, address receiver, uint256 tokens)`
+     - `depositTo(address payer, address collector, address receiver, uint256 tokens)`
+     - `multicall(bytes[] calldata data)` - Enables batch operations
+   - **Breaking Change**: No `depositMany()` - use multicall with multiple `deposit()` calls
 
+**Phase 2: Migration Strategy** 🔄 **IN PROGRESS**
 4. **Design migration strategy for existing escrow balances**
    - Determine if old escrow contract remains active
    - Identify if funds need to be migrated from old to new contract
@@ -39,25 +50,47 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
    - Consider dual-contract support period
    - Document operator actions required during migration
 
-**Phase 2: Implementation**
+### Implementation Phases
+
+**Phase 3: Core Implementation**
 5. **Update subgraph queries in subgraphs.rs**
-   - Rewrite `authorized_signers()` function
-   - Rewrite `escrow_accounts()` function
-   - Update `active_allocations()` if needed
+   - `authorized_signers()`: Change entity from `sender` to `payer` in GraphQL query
+   - `escrow_accounts()`: 
+     - Change entity from `escrowAccounts` to `paymentsEscrowAccounts` 
+     - Update where clause: `sender: "<address>"` → `payer: "<address>"`
+     - Handle potential new fields: `collector`, `thawingAmount`, `thawEndTimestamp`
+   - `active_allocations()`: Verify no changes needed (should remain same)
    
 6. **Update contract ABIs and interfaces in contracts.rs**
-   - Replace Escrow.abi.json with new ABI
-   - Update `authorizeSigner()` method
-   - Update `depositMany()` method
-   - Update error handling for new contract
+   - **File Changes**: 
+     - Remove: `src/abi/Escrow.abi.json`
+     - Add: `src/abi/PaymentsEscrow.abi.json` + `src/abi/GraphTallyCollector.abi.json`
+   - **Contract Struct**: Create `Contracts` with both `payments_escrow` and `tally_collector` instances
+   - **Batch Deposits**: Implement `deposit_many()` using:
+     ```rust
+     let calls: Vec<Bytes> = deposits.map(|(receiver, amount)| 
+         payments_escrow.deposit(collector, receiver, amount).calldata()
+     ).collect();
+     payments_escrow.multicall(calls).send().await?
+     ```
+   - **Authorization**: Move from PaymentsEscrow to GraphTallyCollector interactions
+   - **Error Handling**: Handle errors from both contracts separately
 
-**Phase 3: Cleanup**
+**Phase 4: Configuration & Cleanup**
 7. **Remove TAP Escrow Subgraph configuration and dependencies**
-   - Remove `escrow_subgraph` from config.rs
-   - Remove escrow subgraph client from main.rs
-   - Update documentation
+   - **Config Changes (src/config.rs)**:
+     - Remove: `escrow_subgraph: Url` field
+     - Remove: `escrow_contract: Address` field  
+     - Add: `payments_escrow_contract: Address` field
+     - Add: `graph_tally_collector_contract: Address` field
+   - **Main Changes (src/main.rs)**:
+     - Remove: `escrow_subgraph` client initialization
+     - Remove: `authorized_signers(&mut escrow_subgraph, ...)` call
+     - Remove: `escrow_accounts(&mut escrow_subgraph, ...)` call
+     - Update: All subgraph calls to use `network_subgraph` client only
+   - **Documentation**: Update CLAUDE.md with new contract architecture
 
-**Phase 4: Validation**
+**Phase 5: Validation**
 8. **Test integration with new contracts and subgraphs**
    - Test all queries against new subgraph
    - Test contract interactions
@@ -66,8 +99,8 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
 
 ### Code Impact Summary
 
-- **src/subgraphs.rs** - Major rewrite of 2/3 functions
-- **src/contracts.rs** - Update contract interface methods
-- **src/config.rs** - Remove escrow_subgraph field
-- **src/main.rs** - Remove escrow subgraph client
-- **src/abi/Escrow.abi.json** - Replace with new ABI
+- **src/subgraphs.rs** - Update entity names in 2/3 functions
+- **src/contracts.rs** - Dual contract architecture + multicall implementation
+- **src/config.rs** - Remove escrow_subgraph, add two new contract address fields
+- **src/main.rs** - Remove escrow subgraph client, initialize two contracts
+- **src/abi/** - Replace Escrow.abi.json with PaymentsEscrow.abi.json + GraphTallyCollector.abi.json
