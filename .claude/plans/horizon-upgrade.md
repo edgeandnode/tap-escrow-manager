@@ -18,12 +18,12 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
 ### Research & Planning
 
 **Phase 1: Technical Analysis** ✅ **COMPLETE**
-1. **Analyze Graph Network Subgraph changes** ✅
+1. **Analyze Graph Network Subgraph changes**
    - New entities: `PaymentsEscrowAccount`, `Payer`, `Signer`, `Receiver`, `PaymentsEscrowTransaction`
    - Escrow data now tracked with three-tier structure: payer → collector → receiver
    - Event handlers: `handleDeposit`, `handleWithdraw`, `handleThaw`, `handleCancelThaw`
    
-2. **Map TAP Escrow Subgraph functionality to Graph Network Subgraph** ✅
+2. **Map TAP Escrow Subgraph functionality to Graph Network Subgraph**
    - `authorized_signers()`: 
      - OLD: `{ sender(id:"<address>") { signers { id } } }`
      - NEW: `{ payer(id:"<address>") { signers { id } } }`
@@ -31,7 +31,7 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
      - OLD: `escrowAccounts(where: { sender: "<address>" }) { balance, receiver { id } }`
      - NEW: `paymentsEscrowAccounts(where: { payer: "<address>" }) { balance, receiver { id } }`
    
-3. **Analyze new TAP Escrow Contract interface changes** ✅
+3. **Analyze new TAP Escrow Contract interface changes**
    - **Architecture Split**: 
      - PaymentsEscrow: Fund management (`deposit`, `depositTo`, `thaw`, `withdraw`)
      - GraphTallyCollector: Authorization & collection (`collect`, signer validation)
@@ -42,7 +42,7 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
    - **Breaking Change**: No `depositMany()` - use multicall with multiple `deposit()` calls
 
 **Phase 2: Migration Strategy** ✅ **COMPLETE**
-4. **Design migration strategy for existing escrow balances** ✅
+4. **Design migration strategy for existing escrow balances**
    - **Clean Separation Architecture**: 
      - Pre-upgrade receipts → Old TAP Escrow (existing RAV collection)
      - Post-upgrade receipts → New PaymentsEscrow (via GraphTallyCollector)
