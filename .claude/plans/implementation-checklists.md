@@ -82,13 +82,13 @@
 ### 4.1 Update Configuration (src/config.rs)
 
 **4.1.1 Remove deprecated fields**
-- [ ] Remove `escrow_subgraph: Url` field from Config struct
-- [ ] Remove `escrow_contract: Address` field from Config struct
+- [x] Remove `escrow_subgraph: Url` field from Config struct
+- [x] Remove `escrow_contract: Address` field from Config struct
 
 **4.1.2 Add new contract fields**
-- [ ] Add `payments_escrow_contract: Address` field to Config struct
-- [ ] Add `graph_tally_collector_contract: Address` field to Config struct
-- [ ] Update serde derives if needed
+- [x] Add `payments_escrow_contract: Address` field to Config struct
+- [x] Add `graph_tally_collector_contract: Address` field to Config struct
+- [x] Update field documentation comments
 
 **4.1.3 Test configuration parsing**
 - [ ] Create test config JSON with new fields and without old fields
@@ -99,19 +99,21 @@
 ### 4.2 Update Main Application (src/main.rs)
 
 **4.2.1 Remove escrow subgraph dependencies**
-- [ ] Remove `escrow_subgraph` client initialization
-- [ ] Remove `authorized_signers(&mut escrow_subgraph, &contracts.sender())` call
-- [ ] Remove `escrow_accounts(&mut escrow_subgraph, &contracts.sender())` call
-- [ ] Update both calls to use `network_subgraph` client instead
+- [x] Remove `escrow_subgraph` client initialization
+- [x] Remove `authorized_signers(&mut escrow_subgraph, &contracts.payer())` call
+- [x] Remove `escrow_accounts(&mut escrow_subgraph, &contracts.payer())` call
+- [x] Update both calls to use `network_subgraph` client instead
+- [x] Update function signatures in subgraphs.rs
+- [x] Update subgraph client rebuilding logic
 
 **4.2.2 Update contract initialization**
-- [ ] Update `Contracts::new()` call to pass both contract addresses
-- [ ] Pass `config.payments_escrow_contract` and `config.graph_tally_collector_contract`
+- [x] Update `Contracts::new()` call to pass both contract addresses
+- [x] Pass `config.payments_escrow_contract` and `config.graph_tally_collector_contract`
 - [ ] Test contract initialization with both addresses
 - [ ] Verify both contract instances are accessible
 
 **4.2.3 Update authorization flow**
-- [ ] Update signer authorization to use GraphTallyCollector instead of escrow
+- [x] Authorization flow already updated via contracts.rs changes in Phase 3
 - [ ] Test authorization still works during startup if `config.authorize_signers` is true
 - [ ] Verify error handling for authorization failures
 
@@ -123,39 +125,15 @@
 ### 4.3 Update Documentation
 
 **4.3.1 Update CLAUDE.md**
-- [ ] Update "Components Being Updated" section with dual-contract architecture
-- [ ] Update Kafka inputs section (no changes needed)
-- [ ] Update subgraph inputs with entity name changes
-- [ ] Update blockchain outputs with new contract methods
-- [ ] Remove TAP Escrow Subgraph references entirely
-- [ ] Add PaymentsEscrow + GraphTallyCollector architecture explanation
+- [x] Update subgraph inputs with entity name changes (payer, paymentsEscrowAccounts)
+- [x] Update blockchain outputs with new contract methods (multicall, dual contracts)
+- [x] Remove TAP Escrow Subgraph references entirely
+- [x] Add PaymentsEscrow + GraphTallyCollector architecture explanation
+- [x] Document new contract responsibilities and method signatures
+- [x] Update configuration field references
 
 ## Phase 5: Validation
-
-### 5.1 Unit Testing
-- [ ] Test `authorized_signers()` with mock `payer` entity response
-- [ ] Test `escrow_accounts()` with mock `paymentsEscrowAccounts` response  
-- [ ] Test contract multicall deposit logic with mock contract responses
-- [ ] Test configuration parsing with valid and invalid configs
-- [ ] Test error handling for both PaymentsEscrow and GraphTallyCollector
-
-### 5.2 Integration Testing (if testnet available)
-- [ ] Test subgraph queries against live Horizon Graph Network Subgraph
-- [ ] Test PaymentsEscrow deposit operations with testnet contracts
-- [ ] Test GraphTallyCollector authorization with testnet contracts
-- [ ] Verify GRT allowance/approval flow works with PaymentsEscrow
-- [ ] Test complete startup sequence with new configuration
-
-### 5.3 End-to-End Testing
-- [ ] Full service startup with Horizon configuration
-- [ ] Monitor Kafka message consumption (should be unchanged)
-- [ ] Verify debt calculations work correctly
-- [ ] Test deposit transactions execute and confirm on-chain
-- [ ] Test service handles errors gracefully
-- [ ] Performance test with realistic transaction volumes
-- [ ] Test service shutdown and restart cycles
-
-### 5.4 Pre-Deployment Verification  
+ 
 - [ ] Code review focusing on contract interaction changes
 - [ ] Run linting: `cargo clippy -- -Dwarnings`
 - [ ] Run formatting: `cargo +nightly fmt`

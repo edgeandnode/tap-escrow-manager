@@ -6,7 +6,7 @@ use serde_with::serde_as;
 use thegraph_client_subgraphs::{Client as SubgraphClient, PaginatedQueryError};
 
 pub async fn authorized_signers(
-    escrow_subgraph: &mut SubgraphClient,
+    network_subgraph: &mut SubgraphClient,
     payer: &Address,
 ) -> anyhow::Result<Vec<Address>> {
     #[derive(serde::Deserialize)]
@@ -21,7 +21,7 @@ pub async fn authorized_signers(
     struct Signer {
         id: Address,
     }
-    let data = escrow_subgraph
+    let data = network_subgraph
         .query::<Data>(format!(
             r#"{{ payer(id:"{payer:?}") {{ signers {{ id }} }} }}"#,
         ))
@@ -37,7 +37,7 @@ pub async fn authorized_signers(
 }
 
 pub async fn escrow_accounts(
-    escrow_subgraph: &mut SubgraphClient,
+    network_subgraph: &mut SubgraphClient,
     payer: &Address,
 ) -> anyhow::Result<HashMap<Address, u128>> {
     let query = format!(
@@ -71,7 +71,7 @@ pub async fn escrow_accounts(
     struct Receiver {
         id: Address,
     }
-    let response = escrow_subgraph
+    let response = network_subgraph
         .paginated_query::<EscrowAccount>(query, 500)
         .await;
     match response {

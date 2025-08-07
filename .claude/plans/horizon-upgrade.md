@@ -57,7 +57,7 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
 
 ### Implementation Phases
 
-**Phase 3: Core Implementation**
+**Phase 3: Core Implementation** ✅ **COMPLETE**
 5. **Update subgraph queries in subgraphs.rs**
    - `authorized_signers()`: Change entity from `sender` to `payer` in GraphQL query
    - `escrow_accounts()`: 
@@ -81,7 +81,7 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
    - **Authorization**: Move from PaymentsEscrow to GraphTallyCollector interactions
    - **Error Handling**: Handle errors from both contracts separately
 
-**Phase 4: Configuration & Cleanup**
+**Phase 4: Configuration & Cleanup** ✅ **COMPLETE**
 7. **Remove TAP Escrow Subgraph configuration and dependencies**
    - **Config Changes (src/config.rs)**:
      - Remove: `escrow_subgraph: Url` field

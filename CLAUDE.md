@@ -129,23 +129,23 @@ rpk group seek tap-escrow-manager-mainnet --to $unix_timestamp
    ```
    - Returns: Allocation IDs and their associated indexer addresses
 
-4. **TAP Escrow Subgraph** (`escrow_subgraph` URL from config)
-   - **Query 1**: Authorized signers for sender
+4. **Graph Network Subgraph** (Horizon Integration - same endpoint as #3)
+   - **Query 1**: Authorized signers for payer
    ```graphql
-   { sender(id:"<sender_address>") { signers { id } } }
+   { payer(id:"<payer_address>") { signers { id } } }
    ```
    - Returns: List of authorized signer addresses
    
    - **Query 2**: Escrow account balances
    ```graphql
-   escrowAccounts(
+   paymentsEscrowAccounts(
        block: $block
        orderBy: id
        orderDirection: asc
        first: $first
        where: {
            id_gt: $last
-           sender: "<sender_address>"
+           payer: "<payer_address>"
        }
    ) {
        id
@@ -164,12 +164,16 @@ rpk group seek tap-escrow-manager-mainnet --to $unix_timestamp
 
 1. **Blockchain Transactions**
    - **ERC20 Contract** (`grt_contract` address)
-     - Method: `approve(spender, amount)` - Sets GRT allowance for escrow contract
+     - Method: `approve(spender, amount)` - Sets GRT allowance for PaymentsEscrow contract
    
-   - **TAP Escrow Contract** (`escrow_contract` address)
+   - **PaymentsEscrow Contract** (`payments_escrow_contract` address)
+     - Method: `multicall(calls[])` - Executes batch deposits using multiple `deposit()` calls
+     - Individual `deposit(collector, receiver, amount)` calls within multicall
+     - Collector address is always the GraphTallyCollector contract address
+   
+   - **GraphTallyCollector Contract** (`graph_tally_collector_contract` address)
      - Method: `authorizeSigner(signer, deadline, proof)` - Authorizes signers on startup
-     - Method: `depositMany(receivers[], amounts[])` - Deposits GRT to multiple escrow accounts
-     - Note: Withdrawals are mentioned but not implemented in the current code
+     - Used for signer authorization and RAV collection (collection handled by others)
 
 2. **Logs**
    - Service status and operation logs
