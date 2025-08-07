@@ -41,14 +41,19 @@ Update tap-escrow-manager to work with the Horizon protocol upgrade, which inclu
      - `multicall(bytes[] calldata data)` - Enables batch operations
    - **Breaking Change**: No `depositMany()` - use multicall with multiple `deposit()` calls
 
-**Phase 2: Migration Strategy** 🔄 **IN PROGRESS**
-4. **Design migration strategy for existing escrow balances**
-   - Determine if old escrow contract remains active
-   - Identify if funds need to be migrated from old to new contract
-   - Plan for handling in-flight transactions during migration
-   - Define rollback strategy if issues occur
-   - Consider dual-contract support period
-   - Document operator actions required during migration
+**Phase 2: Migration Strategy** ✅ **COMPLETE**
+4. **Design migration strategy for existing escrow balances** ✅
+   - **Clean Separation Architecture**: 
+     - Pre-upgrade receipts → Old TAP Escrow (existing RAV collection)
+     - Post-upgrade receipts → New PaymentsEscrow (via GraphTallyCollector)
+   - **No Fund Migration**: Existing balances remain in old contract permanently
+   - **No Dual-Contract Management**: tap-escrow-manager only manages new contracts
+   - **Old Contract Handling**: 
+     - Continues operating independently for pre-upgrade RAV collection
+     - Manual intervention when needed (top-up if depleted, drain when safe)
+     - Future script creation for remaining fund removal
+   - **Deployment**: Clean cutover - old system stops, new system starts
+   - **Rollback Strategy**: Not applicable - clean architectural separation
 
 ### Implementation Phases
 
