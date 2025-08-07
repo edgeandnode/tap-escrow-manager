@@ -37,41 +37,44 @@
 ### 3.2 Update Contract Architecture (src/contracts.rs)
 
 **3.2.1 Add new contract ABIs**
-- [ ] Download PaymentsEscrow ABI from horizon contracts repo
-- [ ] Save as `src/abi/PaymentsEscrow.abi.json`
-- [ ] Download GraphTallyCollector ABI from horizon contracts repo  
-- [ ] Save as `src/abi/GraphTallyCollector.abi.json`
-- [ ] Remove old `src/abi/Escrow.abi.json`
+- [x] PaymentsEscrow ABI provided and verified
+- [x] Save as `src/abi/PaymentsEscrow.abi.json`
+- [x] GraphTallyCollector ABI provided and verified
+- [x] Save as `src/abi/GraphTallyCollector.abi.json`
+- [x] Remove old `src/abi/Escrow.abi.json`
 
 **3.2.2 Update Contracts struct**
-- [ ] Add `payments_escrow: PaymentsEscrowInstance<DynProvider>` field
-- [ ] Add `tally_collector: GraphTallyCollectorInstance<DynProvider>` field
-- [ ] Remove old `escrow: EscrowInstance<DynProvider>` field
-- [ ] Update `Contracts::new()` to take both contract addresses
-- [ ] Initialize both contract instances in constructor
+- [x] Add `payments_escrow: PaymentsEscrowInstance<DynProvider>` field
+- [x] Add `graph_tally_collector: GraphTallyCollectorInstance<DynProvider>` field
+- [x] Remove old `escrow: EscrowInstance<DynProvider>` field
+- [x] Update `Contracts::new()` to take both contract addresses
+- [x] Initialize both contract instances in constructor
+- [x] Added sol! macros for both new contracts
 - [x] Update `sender()` method to `payer()` for consistency
 
 **3.2.3 Implement multicall deposit functionality**
-- [ ] Replace `deposit_many()` implementation with multicall approach
-- [ ] Create deposit calls: `payments_escrow.deposit(tally_collector_address, receiver, amount).calldata()`
-- [ ] Build `Vec<Bytes>` from all deposit calls
-- [ ] Execute `payments_escrow.multicall(calls).send().await`
-- [ ] Handle multicall-specific errors (revert on any failed deposit)
+- [x] Replace `deposit_many()` implementation with multicall approach
+- [x] Create deposit calls: `payments_escrow.deposit(graph_tally_collector_address, receiver, amount).calldata()`
+- [x] Build `Vec<Bytes>` from all deposit calls
+- [x] Execute `payments_escrow.multicall(calls).send().await`
+- [x] Handle multicall-specific errors with PaymentsEscrowErrors
 - [ ] Test batch deposit functionality with multiple receivers
 
 **3.2.4 Update signer authorization**
-- [ ] Remove `authorize_signer()` method from PaymentsEscrow logic
-- [ ] Implement signer authorization using GraphTallyCollector
-- [ ] Research GraphTallyCollector authorization method signature
-- [ ] Update authorization flow in main.rs to use new contract
-- [ ] Handle GraphTallyCollector-specific errors
+- [x] Move `authorize_signer()` from old escrow to GraphTallyCollector
+- [x] Implement signer authorization using GraphTallyCollector
+- [x] Verified GraphTallyCollector authorization method signature (same as old)
+- [x] Update authorization flow to use graph_tally_collector contract
+- [x] Handle GraphTallyCollectorErrors instead of EscrowErrors
+- [x] Update chain_id retrieval to use graph_tally_collector provider
 - [ ] Test signer authorization end-to-end
 
 **3.2.5 Update utility methods**
-- [ ] Keep `allowance()` method (still uses GRT contract)
-- [ ] Keep `approve()` method (still uses GRT contract, approves PaymentsEscrow)
-- [ ] Update `approve()` to use PaymentsEscrow address instead of old escrow
-- [ ] Add error handling for both new contracts
+- [x] Keep `allowance()` method (still uses GRT contract)
+- [x] Update `allowance()` to check PaymentsEscrow address instead of old escrow
+- [x] Keep `approve()` method (still uses GRT contract, approves PaymentsEscrow)
+- [x] Update `approve()` to use PaymentsEscrow address instead of old escrow
+- [x] Error handling updated for new contract types
 - [ ] Test GRT allowance and approval flow
 
 ## Phase 4: Configuration & Cleanup
