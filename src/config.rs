@@ -32,7 +32,7 @@ pub struct Config {
     /// RPC for executing transactions
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub rpc_url: Url,
-    /// Secret key of the TAP sender wallet
+    /// Secret key of the TAP payer wallet
     pub secret_key: B256,
     /// Secret keys of the TAP signer wallets, used to filter the indexer fees messages.
     pub signers: Vec<B256>,

@@ -5,22 +5,34 @@
 ### 3.1 Update Subgraph Queries (src/subgraphs.rs)
 
 **3.1.1 Update `authorized_signers()` function**
-- [ ] Change GraphQL query entity from `sender` to `payer`
-- [ ] Update query string: `{ sender(id:"...") { signers { id } } }` → `{ payer(id:"...") { signers { id } } }`
+- [x] Change GraphQL query entity from `sender` to `payer`
+- [x] Update query string: `{ sender(id:"...") { signers { id } } }` → `{ payer(id:"...") { signers { id } } }`
+- [x] Update parameter names from `sender` to `payer`
+- [x] Update struct field names to match new schema
 - [ ] Test query returns same data structure
 - [ ] Verify signer address extraction still works
 
 **3.1.2 Update `escrow_accounts()` function** 
-- [ ] Change entity from `escrowAccounts` to `paymentsEscrowAccounts`
-- [ ] Update where clause: `sender: "<address>"` → `payer: "<address>"`
+- [x] Change entity from `escrowAccounts` to `paymentsEscrowAccounts`
+- [x] Update where clause: `sender: "<address>"` → `payer: "<address>"`
+- [x] Update parameter names from `sender` to `payer`
 - [ ] Handle new fields if needed: `collector`, `thawingAmount`, `thawEndTimestamp`
 - [ ] Verify receiver address mapping still works (receiver.id → indexer)
 - [ ] Test paginated query functionality works with new entity
 
 **3.1.3 Verify `active_allocations()` function**
+- [x] Reviewed code - no changes needed
+- [x] Already queries network_subgraph (not escrow subgraph)
 - [ ] Test existing query against new Graph Network Subgraph
 - [ ] Verify allocation data structure unchanged
-- [ ] Update if any schema changes affect allocations (unlikely)
+
+**3.1.4 Update sender → payer terminology**
+- [x] Update all function parameters in subgraphs.rs
+- [x] Update field name in Contracts struct (contracts.rs)
+- [x] Update method name from `sender()` to `payer()` (contracts.rs)
+- [x] Update variable names in main.rs
+- [x] Update comments in config.rs
+- [x] Ensure consistency across all files
 
 ### 3.2 Update Contract Architecture (src/contracts.rs)
 
@@ -37,7 +49,7 @@
 - [ ] Remove old `escrow: EscrowInstance<DynProvider>` field
 - [ ] Update `Contracts::new()` to take both contract addresses
 - [ ] Initialize both contract instances in constructor
-- [ ] Keep `sender()` method unchanged
+- [x] Update `sender()` method to `payer()` for consistency
 
 **3.2.3 Implement multicall deposit functionality**
 - [ ] Replace `deposit_many()` implementation with multicall approach

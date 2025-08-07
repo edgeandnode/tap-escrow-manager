@@ -38,10 +38,10 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
         .context("failed to load config")?;
 
-    let sender = PrivateKeySigner::from_bytes(&config.secret_key)?;
-    tracing::info!(sender = %sender.address());
+    let payer = PrivateKeySigner::from_bytes(&config.secret_key)?;
+    tracing::info!(payer = %payer.address());
     let contracts = Contracts::new(
-        sender,
+        payer,
         config.rpc_url.clone(),
         config.grt_contract,
         config.escrow_contract,
@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     let signers = signers;
 
     if config.authorize_signers {
-        let authorized_signers = authorized_signers(&mut escrow_subgraph, &contracts.sender())
+        let authorized_signers = authorized_signers(&mut escrow_subgraph, &contracts.payer())
             .await
             .context("fetch authorized signers")?;
         for signer in &signers {
@@ -120,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
         let mut receivers: BTreeSet<Address> = allocations.iter().map(|a| a.indexer).collect();
-        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &contracts.sender()).await
+        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &contracts.payer()).await
         {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {

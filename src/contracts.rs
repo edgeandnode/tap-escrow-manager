@@ -30,32 +30,32 @@ use Escrow::{EscrowErrors, EscrowInstance};
 pub struct Contracts {
     escrow: EscrowInstance<DynProvider>,
     token: ERC20Instance<DynProvider>,
-    sender: Address,
+    payer: Address,
 }
 
 impl Contracts {
-    pub fn new(sender: PrivateKeySigner, chain_rpc: Url, token: Address, escrow: Address) -> Self {
+    pub fn new(payer: PrivateKeySigner, chain_rpc: Url, token: Address, escrow: Address) -> Self {
         let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(sender))
+            .wallet(EthereumWallet::from(payer))
             .connect_http(chain_rpc);
-        let sender = provider.default_signer_address();
+        let payer = provider.default_signer_address();
         let provider = provider.erased();
         let escrow = EscrowInstance::new(escrow, provider.clone());
         let token = ERC20Instance::new(token, provider.clone());
         Self {
             escrow,
             token,
-            sender,
+            payer,
         }
     }
 
-    pub fn sender(&self) -> Address {
-        self.sender
+    pub fn payer(&self) -> Address {
+        self.payer
     }
 
     pub async fn allowance(&self) -> anyhow::Result<u128> {
         self.token
-            .allowance(self.sender(), *self.escrow.address())
+            .allowance(self.payer(), *self.escrow.address())
             .call()
             .await
             .context("get allowance")?
@@ -117,7 +117,7 @@ impl Contracts {
         let mut proof_message = [0u8; 84];
         proof_message[0..32].copy_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
         proof_message[32..64].copy_from_slice(&deadline.to_be_bytes::<32>());
-        proof_message[64..].copy_from_slice(&self.sender().0.abi_encode_packed());
+        proof_message[64..].copy_from_slice(&self.payer().0.abi_encode_packed());
         let hash = keccak256(proof_message);
         let signature = signer
             .sign_message_sync(hash.as_slice())

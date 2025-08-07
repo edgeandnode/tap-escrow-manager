@@ -7,14 +7,14 @@ use thegraph_client_subgraphs::{Client as SubgraphClient, PaginatedQueryError};
 
 pub async fn authorized_signers(
     escrow_subgraph: &mut SubgraphClient,
-    sender: &Address,
+    payer: &Address,
 ) -> anyhow::Result<Vec<Address>> {
     #[derive(serde::Deserialize)]
     struct Data {
-        sender: Option<Sender>,
+        payer: Option<Payer>,
     }
     #[derive(serde::Deserialize)]
-    struct Sender {
+    struct Payer {
         signers: Vec<Signer>,
     }
     #[derive(serde::Deserialize)]
@@ -23,12 +23,12 @@ pub async fn authorized_signers(
     }
     let data = escrow_subgraph
         .query::<Data>(format!(
-            r#"{{ sender(id:"{sender:?}") {{ signers {{ id }} }} }}"#,
+            r#"{{ payer(id:"{payer:?}") {{ signers {{ id }} }} }}"#,
         ))
         .await
         .map_err(|err| anyhow!(err))?;
     let signers = data
-        .sender
+        .payer
         .into_iter()
         .flat_map(|s| s.signers)
         .map(|s| s.id)
@@ -38,18 +38,18 @@ pub async fn authorized_signers(
 
 pub async fn escrow_accounts(
     escrow_subgraph: &mut SubgraphClient,
-    sender: &Address,
+    payer: &Address,
 ) -> anyhow::Result<HashMap<Address, u128>> {
     let query = format!(
         r#"
-        escrowAccounts(
+        paymentsEscrowAccounts(
             block: $block
             orderBy: id
             orderDirection: asc
             first: $first
             where: {{
                 id_gt: $last
-                sender: "{sender:?}"
+                payer: "{payer:?}"
             }}
         ) {{
             id
