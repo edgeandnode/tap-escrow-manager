@@ -196,11 +196,13 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
             };
-            network_subgraph =
-                SubgraphClient::builder(network_subgraph.http_client, network_subgraph.subgraph_url)
-                    .with_auth_token(Some(config.query_auth.clone()))
-                    .with_subgraph_latest_block(tx_block)
-                    .build();
+            network_subgraph = SubgraphClient::builder(
+                network_subgraph.http_client,
+                network_subgraph.subgraph_url,
+            )
+            .with_auth_token(Some(config.query_auth.clone()))
+            .with_subgraph_latest_block(tx_block)
+            .build();
 
             tracing::info!("adjustments complete");
         }

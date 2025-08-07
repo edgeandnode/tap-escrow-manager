@@ -209,49 +209,6 @@
       "inputs": [
         {
           "indexed": true,
-          "internalType": "enum IGraphPayments.PaymentTypes",
-          "name": "paymentType",
-          "type": "uint8"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "payer",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "collector",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "receiver",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "tokens",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "receiverDestination",
-          "type": "address"
-        }
-      ],
-      "name": "EscrowCollected",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "graphToken",
           "type": "address"
@@ -435,49 +392,6 @@
         }
       ],
       "name": "cancelThaw",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "enum IGraphPayments.PaymentTypes",
-          "name": "paymentType",
-          "type": "uint8"
-        },
-        {
-          "internalType": "address",
-          "name": "payer",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "receiver",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "tokens",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "dataService",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "dataServiceCut",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "receiverDestination",
-          "type": "address"
-        }
-      ],
-      "name": "collect",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

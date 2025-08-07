@@ -9,22 +9,22 @@
 - [x] Update query string: `{ sender(id:"...") { signers { id } } }` → `{ payer(id:"...") { signers { id } } }`
 - [x] Update parameter names from `sender` to `payer`
 - [x] Update struct field names to match new schema
-- [ ] Test query returns same data structure
-- [ ] Verify signer address extraction still works
+- [x] Test query returns same data structure
+- [x] Verify signer address extraction still works
 
 **3.1.2 Update `escrow_accounts()` function** 
 - [x] Change entity from `escrowAccounts` to `paymentsEscrowAccounts`
 - [x] Update where clause: `sender: "<address>"` → `payer: "<address>"`
 - [x] Update parameter names from `sender` to `payer`
-- [ ] Handle new fields if needed: `collector`, `thawingAmount`, `thawEndTimestamp`
-- [ ] Verify receiver address mapping still works (receiver.id → indexer)
-- [ ] Test paginated query functionality works with new entity
+- [x] Handle new fields if needed: `collector`, `thawingAmount`, `thawEndTimestamp`
+- [x] Verify receiver address mapping still works (receiver.id → indexer)
+- [x] Test paginated query functionality works with new entity
 
 **3.1.3 Verify `active_allocations()` function**
 - [x] Reviewed code - no changes needed
 - [x] Already queries network_subgraph (not escrow subgraph)
-- [ ] Test existing query against new Graph Network Subgraph
-- [ ] Verify allocation data structure unchanged
+- [x] Test existing query against new Graph Network Subgraph
+- [x] Verify allocation data structure unchanged
 
 **3.1.4 Update sender → payer terminology**
 - [x] Update all function parameters in subgraphs.rs
@@ -58,7 +58,7 @@
 - [x] Build `Vec<Bytes>` from all deposit calls
 - [x] Execute `payments_escrow.multicall(calls).send().await`
 - [x] Handle multicall-specific errors with PaymentsEscrowErrors
-- [ ] Test batch deposit functionality with multiple receivers
+- [x] Test batch deposit functionality with multiple receivers
 
 **3.2.4 Update signer authorization**
 - [x] Move `authorize_signer()` from old escrow to GraphTallyCollector
@@ -67,7 +67,7 @@
 - [x] Update authorization flow to use graph_tally_collector contract
 - [x] Handle GraphTallyCollectorErrors instead of EscrowErrors
 - [x] Update chain_id retrieval to use graph_tally_collector provider
-- [ ] Test signer authorization end-to-end
+- [x] Test signer authorization end-to-end
 
 **3.2.5 Update utility methods**
 - [x] Keep `allowance()` method (still uses GRT contract)
@@ -75,7 +75,7 @@
 - [x] Keep `approve()` method (still uses GRT contract, approves PaymentsEscrow)
 - [x] Update `approve()` to use PaymentsEscrow address instead of old escrow
 - [x] Error handling updated for new contract types
-- [ ] Test GRT allowance and approval flow
+- [x] Test GRT allowance and approval flow
 
 ## Phase 4: Configuration & Cleanup
 
@@ -91,10 +91,10 @@
 - [x] Update field documentation comments
 
 **4.1.3 Test configuration parsing**
-- [ ] Create test config JSON with new fields and without old fields
-- [ ] Test config deserializes correctly
-- [ ] Test error handling for missing required fields
-- [ ] Update any example configs or documentation
+- [x] Create test config JSON with new fields and without old fields
+- [x] Test config deserializes correctly
+- [x] Test error handling for missing required fields
+- [x] Update any example configs or documentation
 
 ### 4.2 Update Main Application (src/main.rs)
 
@@ -109,18 +109,18 @@
 **4.2.2 Update contract initialization**
 - [x] Update `Contracts::new()` call to pass both contract addresses
 - [x] Pass `config.payments_escrow_contract` and `config.graph_tally_collector_contract`
-- [ ] Test contract initialization with both addresses
-- [ ] Verify both contract instances are accessible
+- [x] Test contract initialization with both addresses
+- [x] Verify both contract instances are accessible
 
 **4.2.3 Update authorization flow**
 - [x] Authorization flow already updated via contracts.rs changes in Phase 3
-- [ ] Test authorization still works during startup if `config.authorize_signers` is true
-- [ ] Verify error handling for authorization failures
+- [x] Test authorization still works during startup if `config.authorize_signers` is true
+- [x] Verify error handling for authorization failures
 
 **4.2.4 Test main loop**
-- [ ] Verify escrow account queries work with `network_subgraph`
-- [ ] Test deposit operations use new multicall approach  
-- [ ] Ensure all business logic (debt calculation, balance adjustments) unchanged
+- [x] Verify escrow account queries work with `network_subgraph`
+- [x] Test deposit operations use new multicall approach  
+- [x] Ensure all business logic (debt calculation, balance adjustments) unchanged
 
 ### 4.3 Update Documentation
 
@@ -134,11 +134,11 @@
 
 ## Phase 5: Validation
  
-- [ ] Code review focusing on contract interaction changes
-- [ ] Run linting: `cargo clippy -- -Dwarnings`
-- [ ] Run formatting: `cargo +nightly fmt`
-- [ ] Run all tests: `cargo test`
-- [ ] Build release binary: `cargo build --release`
-- [ ] Verify no changes to core escrow balance logic
-- [ ] Final documentation review
-- [ ] Deployment runbook preparation
+- [x] Code review focusing on contract interaction changes
+- [x] Run linting: `cargo clippy -- -Dwarnings`
+- [x] Run formatting: `cargo +nightly fmt`
+- [x] Run all tests: `cargo test`
+- [x] Build release binary: `cargo build --release`
+- [x] Verify no changes to core escrow balance logic
+- [x] Final documentation review
+- [x] Deployment runbook preparation

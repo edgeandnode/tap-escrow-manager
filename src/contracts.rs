@@ -44,9 +44,9 @@ pub struct Contracts {
 
 impl Contracts {
     pub fn new(
-        payer: PrivateKeySigner, 
-        chain_rpc: Url, 
-        token: Address, 
+        payer: PrivateKeySigner,
+        chain_rpc: Url,
+        token: Address,
         payments_escrow: Address,
         graph_tally_collector: Address,
     ) -> Self {
@@ -56,7 +56,8 @@ impl Contracts {
         let payer = provider.default_signer_address();
         let provider = provider.erased();
         let payments_escrow = PaymentsEscrowInstance::new(payments_escrow, provider.clone());
-        let graph_tally_collector = GraphTallyCollectorInstance::new(graph_tally_collector, provider.clone());
+        let graph_tally_collector =
+            GraphTallyCollectorInstance::new(graph_tally_collector, provider.clone());
         let token = ERC20Instance::new(token, provider.clone());
         Self {
             payments_escrow,
@@ -101,8 +102,13 @@ impl Contracts {
             .into_iter()
             .map(|(receiver, amount)| {
                 self.payments_escrow
-                    .deposit(*self.graph_tally_collector.address(), receiver, U256::from(amount))
+                    .deposit(
+                        *self.graph_tally_collector.address(),
+                        receiver,
+                        U256::from(amount),
+                    )
                     .calldata()
+                    .clone()
             })
             .collect();
 
@@ -117,7 +123,7 @@ impl Contracts {
             .with_required_confirmations(1)
             .get_receipt()
             .await?;
-        
+
         let block_number = receipt
             .block_number
             .ok_or_else(|| anyhow!("invalid deposit receipt"))?;
