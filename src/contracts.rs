@@ -6,7 +6,7 @@ use alloy::{
     providers::{DynProvider, Provider as _, ProviderBuilder, WalletProvider},
     signers::{local::PrivateKeySigner, SignerSync as _},
     sol,
-    sol_types::{SolInterface, SolValue as _},
+    sol_types::SolInterface,
 };
 use anyhow::{anyhow, Context as _};
 use reqwest::Url;
