@@ -149,13 +149,13 @@ impl Contracts {
         // abi.encodePacked(block.chainid, address(this), "authorizeSignerProof", _proofDeadline, msg.sender)
         let mut message = Vec::new();
         message.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
-        message.extend_from_slice(&self.graph_tally_collector.address().0.0);
+        message.extend_from_slice(&self.graph_tally_collector.address().0 .0);
         message.extend_from_slice(b"authorizeSignerProof");
         message.extend_from_slice(&deadline.to_be_bytes::<32>());
-        message.extend_from_slice(&self.payer().0.0);
-        
+        message.extend_from_slice(&self.payer().0 .0);
+
         let hash = keccak256(&message);
-        
+
         // Sign with Ethereum message prefix (matching toEthSignedMessageHash)
         let signature = signer
             .sign_message_sync(hash.as_slice())
