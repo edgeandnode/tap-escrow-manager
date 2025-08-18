@@ -6,7 +6,7 @@ use alloy::{
     providers::{DynProvider, Provider as _, ProviderBuilder, WalletProvider},
     signers::{local::PrivateKeySigner, SignerSync as _},
     sol,
-    sol_types::{SolInterface, SolValue as _},
+    sol_types::SolInterface,
 };
 use anyhow::{anyhow, Context as _};
 use reqwest::Url;
@@ -145,11 +145,18 @@ impl Contracts {
                 .as_secs()
                 + deadline_offset_s,
         );
-        let mut proof_message = [0u8; 84];
-        proof_message[0..32].copy_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
-        proof_message[32..64].copy_from_slice(&deadline.to_be_bytes::<32>());
-        proof_message[64..].copy_from_slice(&self.payer().0.abi_encode_packed());
-        let hash = keccak256(proof_message);
+        // Build the message according to the contract's expectation:
+        // abi.encodePacked(block.chainid, address(this), "authorizeSignerProof", _proofDeadline, msg.sender)
+        let mut message = Vec::new();
+        message.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
+        message.extend_from_slice(&self.graph_tally_collector.address().0 .0);
+        message.extend_from_slice(b"authorizeSignerProof");
+        message.extend_from_slice(&deadline.to_be_bytes::<32>());
+        message.extend_from_slice(&self.payer().0 .0);
+
+        let hash = keccak256(&message);
+
+        // Sign with Ethereum message prefix (matching toEthSignedMessageHash)
         let signature = signer
             .sign_message_sync(hash.as_slice())
             .context("sign authorization proof")?;
