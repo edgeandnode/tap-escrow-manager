@@ -101,7 +101,6 @@ pub async fn active_allocations(
             where: {
                 id_gt: $last
                 status: Active
-                isLegacy: false
             }
         ) {
             id
