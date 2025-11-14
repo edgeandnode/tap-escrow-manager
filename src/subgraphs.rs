@@ -6,29 +6,29 @@ use serde_with::serde_as;
 use thegraph_client_subgraphs::{Client as SubgraphClient, PaginatedQueryError};
 
 pub async fn authorized_signers(
-    escrow_subgraph: &mut SubgraphClient,
-    sender: &Address,
+    network_subgraph: &mut SubgraphClient,
+    payer: &Address,
 ) -> anyhow::Result<Vec<Address>> {
     #[derive(serde::Deserialize)]
     struct Data {
-        sender: Option<Sender>,
+        payer: Option<Payer>,
     }
     #[derive(serde::Deserialize)]
-    struct Sender {
+    struct Payer {
         signers: Vec<Signer>,
     }
     #[derive(serde::Deserialize)]
     struct Signer {
         id: Address,
     }
-    let data = escrow_subgraph
+    let data = network_subgraph
         .query::<Data>(format!(
-            r#"{{ sender(id:"{sender:?}") {{ signers {{ id }} }} }}"#,
+            r#"{{ payer(id:"{payer:?}") {{ signers {{ id }} }} }}"#,
         ))
         .await
         .map_err(|err| anyhow!(err))?;
     let signers = data
-        .sender
+        .payer
         .into_iter()
         .flat_map(|s| s.signers)
         .map(|s| s.id)
@@ -37,19 +37,19 @@ pub async fn authorized_signers(
 }
 
 pub async fn escrow_accounts(
-    escrow_subgraph: &mut SubgraphClient,
-    sender: &Address,
+    network_subgraph: &mut SubgraphClient,
+    payer: &Address,
 ) -> anyhow::Result<HashMap<Address, u128>> {
     let query = format!(
         r#"
-        escrowAccounts(
+        paymentsEscrowAccounts(
             block: $block
             orderBy: id
             orderDirection: asc
             first: $first
             where: {{
                 id_gt: $last
-                sender: "{sender:?}"
+                payer: "{payer:?}"
             }}
         ) {{
             id
@@ -71,7 +71,7 @@ pub async fn escrow_accounts(
     struct Receiver {
         id: Address,
     }
-    let response = escrow_subgraph
+    let response = network_subgraph
         .paginated_query::<EscrowAccount>(query, 500)
         .await;
     match response {
@@ -92,6 +92,9 @@ pub struct Allocation {
 pub async fn active_allocations(
     network_subgraph: &mut SubgraphClient,
 ) -> anyhow::Result<Vec<Allocation>> {
+    // Here we specifically not filter based on isLegacy
+    // To minimize network downtime we want to pre-collateralize indexers that have active legacy allocations
+    // even if they have not moved to SubgraphService yet.
     let query = r#"
         allocations(
             block: $block
@@ -101,6 +104,7 @@ pub async fn active_allocations(
             where: {
                 id_gt: $last
                 status: Active
+		isLegacy: true
             }
         ) {
             id

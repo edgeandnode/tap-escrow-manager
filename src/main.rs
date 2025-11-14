@@ -38,13 +38,14 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
         .context("failed to load config")?;
 
-    let sender = PrivateKeySigner::from_bytes(&config.secret_key)?;
-    tracing::info!(sender = %sender.address());
+    let payer = PrivateKeySigner::from_bytes(&config.secret_key)?;
+    tracing::info!(payer = %payer.address());
     let contracts = Contracts::new(
-        sender,
+        payer,
         config.rpc_url.clone(),
         config.grt_contract,
-        config.escrow_contract,
+        config.payments_escrow_contract,
+        config.graph_tally_collector_contract,
     );
 
     let http = reqwest::Client::builder()
@@ -52,9 +53,6 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .unwrap();
     let mut network_subgraph = SubgraphClient::builder(http.clone(), config.network_subgraph)
-        .with_auth_token(Some(config.query_auth.clone()))
-        .build();
-    let mut escrow_subgraph = SubgraphClient::builder(http.clone(), config.escrow_subgraph)
         .with_auth_token(Some(config.query_auth.clone()))
         .build();
 
@@ -66,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
     let signers = signers;
 
     if config.authorize_signers {
-        let authorized_signers = authorized_signers(&mut escrow_subgraph, &contracts.sender())
+        let authorized_signers = authorized_signers(&mut network_subgraph, &contracts.payer())
             .await
             .context("fetch authorized signers")?;
         for signer in &signers {
@@ -120,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
         let mut receivers: BTreeSet<Address> = allocations.iter().map(|a| a.indexer).collect();
-        let escrow_accounts = match escrow_accounts(&mut escrow_subgraph, &contracts.sender()).await
+        let escrow_accounts = match escrow_accounts(&mut network_subgraph, &contracts.payer()).await
         {
             Ok(escrow_accounts) => escrow_accounts,
             Err(escrow_accounts_err) => {
@@ -198,11 +196,13 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
             };
-            escrow_subgraph =
-                SubgraphClient::builder(escrow_subgraph.http_client, escrow_subgraph.subgraph_url)
-                    .with_auth_token(Some(config.query_auth.clone()))
-                    .with_subgraph_latest_block(tx_block)
-                    .build();
+            network_subgraph = SubgraphClient::builder(
+                network_subgraph.http_client,
+                network_subgraph.subgraph_url,
+            )
+            .with_auth_token(Some(config.query_auth.clone()))
+            .with_subgraph_latest_block(tx_block)
+            .build();
 
             tracing::info!("adjustments complete");
         }

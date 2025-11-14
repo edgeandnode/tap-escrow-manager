@@ -13,11 +13,10 @@ pub struct Config {
     /// Table of minimum debts by indexer. This can be used, for example, to account for receipts
     /// missing from the kafka topic.
     pub debts: BTreeMap<Address, u64>,
-    /// TAP escrow contract address
-    pub escrow_contract: Address,
-    /// TAP escrow subgraph
-    #[serde_as(as = "serde_with::DisplayFromStr")]
-    pub escrow_subgraph: Url,
+    /// PaymentsEscrow contract address
+    pub payments_escrow_contract: Address,
+    /// GraphTallyCollector contract address
+    pub graph_tally_collector_contract: Address,
     /// GRT contract for updating allowance
     pub grt_contract: Address,
     /// GRT allowance to set on startup
@@ -32,7 +31,7 @@ pub struct Config {
     /// RPC for executing transactions
     #[serde_as(as = "serde_with::DisplayFromStr")]
     pub rpc_url: Url,
-    /// Secret key of the TAP sender wallet
+    /// Secret key of the TAP payer wallet
     pub secret_key: B256,
     /// Secret keys of the TAP signer wallets, used to filter the indexer fees messages.
     pub signers: Vec<B256>,
