@@ -156,8 +156,8 @@ async fn main() -> anyhow::Result<()> {
                 debts.insert(*receiver, u128::max(receipts, ravs));
                 tracing::info!(
                     %receiver,
-                    receipts = %format!("{:.2}", receipts as f64 * 1e-18),
-                    ravs = %format!("{:.2}", ravs as f64 * 1e-18),
+                    receipts = %format!("{:.6}", receipts as f64 * 1e-18),
+                    ravs = %format!("{:.6}", ravs as f64 * 1e-18),
                 );
             }
         };
