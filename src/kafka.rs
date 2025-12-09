@@ -70,13 +70,10 @@ mod receipts {
                     if !signers.contains(&Address::from_slice(&aggregation.signer)) {
                         continue;
                     }
-                    let update = Update {
-                        timestamp: DateTime::from_timestamp_millis(msg.timestamp)
-                            .context("timestamp out of range")?,
-                        indexer: Address::from_slice(&aggregation.receiver),
-                        fee: (aggregation.fee_grt * 1e18) as u128,
-                    };
-                    db.send(update).await.unwrap();
+                    // Aggregated topic doesn't include allocation, skip these entries
+                    // as we can't determine if they're from legacy allocations.
+                    // The realtime topic will provide allocation-level data.
+                    let _ = (msg.timestamp, &aggregation.receiver, aggregation.fee_grt);
                 }
 
                 if latest_aggregated_offsets.get(&partition).unwrap() == &offset {
@@ -136,6 +133,9 @@ mod receipts {
         /// 20 bytes (address)
         #[prost(bytes, tag = "1")]
         indexer: Vec<u8>,
+        /// 20 bytes (address)
+        #[prost(bytes, tag = "3")]
+        allocation: Vec<u8>,
         #[prost(double, tag = "6")]
         fee_grt: f64,
     }
@@ -177,7 +177,7 @@ mod receipts {
                 for indexer_query in payload.indexer_queries {
                     let update = Update {
                         timestamp,
-                        indexer: Address::from_slice(&indexer_query.indexer),
+                        allocation: Address::from_slice(&indexer_query.allocation),
                         fee: (indexer_query.fee_grt * 1e18) as u128,
                     };
                     let _ = db.send(update).await;
@@ -189,12 +189,11 @@ mod receipts {
 
     pub struct Update {
         pub timestamp: DateTime<Utc>,
-        pub indexer: Address,
+        pub allocation: Address,
         pub fee: u128,
     }
 
     pub struct DB {
-        // indexer debts, aggregated per hour
         data: BTreeMap<Address, BTreeMap<i64, u128>>,
         window: Duration,
         tx: watch::Sender<BTreeMap<Address, u128>>,
@@ -240,7 +239,7 @@ mod receipts {
             }
             let entry = self
                 .data
-                .entry(update.indexer)
+                .entry(update.allocation)
                 .or_default()
                 .entry(hourly_timestamp(update.timestamp))
                 .or_default();
@@ -258,7 +257,7 @@ mod receipts {
         fn snapshot(&self) -> BTreeMap<Address, u128> {
             self.data
                 .iter()
-                .map(|(indexer, entries)| (*indexer, entries.values().sum()))
+                .map(|(allocation, entries)| (*allocation, entries.values().sum()))
                 .collect()
         }
     }

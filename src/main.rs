@@ -134,20 +134,24 @@ async fn main() -> anyhow::Result<()> {
         tracing::debug!(receivers = receivers.len());
 
         let mut indexer_ravs: BTreeMap<Address, u128> = Default::default();
+        let mut indexer_receipts: BTreeMap<Address, u128> = Default::default();
         {
             let allocation_ravs = ravs.borrow();
-            for allocation in allocations {
+            let allocation_receipts = receipts.borrow();
+            for allocation in &allocations {
                 if let Some(value) = allocation_ravs.get(&allocation.id) {
                     *indexer_ravs.entry(allocation.indexer).or_default() += *value;
+                }
+                if let Some(value) = allocation_receipts.get(&allocation.id) {
+                    *indexer_receipts.entry(allocation.indexer).or_default() += *value;
                 }
             }
         }
 
         let mut debts: BTreeMap<Address, u128> = Default::default();
         {
-            let receipts = receipts.borrow();
             for receiver in &receivers {
-                let receipts = *receipts.get(receiver).unwrap_or(&0);
+                let receipts = *indexer_receipts.get(receiver).unwrap_or(&0);
                 let ravs = *indexer_ravs.get(receiver).unwrap_or(&0);
                 debts.insert(*receiver, u128::max(receipts, ravs));
                 tracing::info!(
