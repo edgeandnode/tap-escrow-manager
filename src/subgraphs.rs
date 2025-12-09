@@ -92,9 +92,6 @@ pub struct Allocation {
 pub async fn active_allocations(
     network_subgraph: &mut SubgraphClient,
 ) -> anyhow::Result<Vec<Allocation>> {
-    // Here we specifically not filter based on isLegacy
-    // To minimize network downtime we want to pre-collateralize indexers that have active legacy allocations
-    // even if they have not moved to SubgraphService yet.
     let query = r#"
         allocations(
             block: $block
@@ -104,7 +101,7 @@ pub async fn active_allocations(
             where: {
                 id_gt: $last
                 status: Active
-		isLegacy: true
+		        isLegacy: false
             }
         ) {
             id
