@@ -95,7 +95,9 @@ mod receipts {
         }
         let cutoff = config.receipts_cutoff_timestamp;
         tokio::spawn(async move {
-            if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, signers, cutoff).await {
+            if let Err(kafka_consumer_err) =
+                process_messages(&mut consumer, db, signers, cutoff).await
+            {
                 tracing::error!(%kafka_consumer_err);
             }
         });
@@ -158,7 +160,12 @@ mod receipts {
                     }
                 };
                 if let Some(cutoff) = cutoff {
-                    if msg.timestamp().to_millis().map(|t| t < cutoff).unwrap_or(false) {
+                    if msg
+                        .timestamp()
+                        .to_millis()
+                        .map(|t| t < cutoff)
+                        .unwrap_or(false)
+                    {
                         return;
                     }
                 }
