@@ -90,11 +90,8 @@ mod receipts {
         } else {
             assign_partitions(&consumer, &[&config.realtime_topic], start_timestamp).await?;
         }
-        let cutoff = config.receipts_cutoff_timestamp;
         tokio::spawn(async move {
-            if let Err(kafka_consumer_err) =
-                process_messages(&mut consumer, db, signers, cutoff).await
-            {
+            if let Err(kafka_consumer_err) = process_messages(&mut consumer, db, signers).await {
                 tracing::error!(%kafka_consumer_err);
             }
         });
@@ -147,7 +144,6 @@ mod receipts {
         consumer: &mut StreamConsumer,
         db: mpsc::Sender<Update>,
         signers: Vec<Address>,
-        cutoff: Option<i64>,
     ) -> anyhow::Result<()> {
         consumer
             .stream()
@@ -159,16 +155,6 @@ mod receipts {
                         return;
                     }
                 };
-                if let Some(cutoff) = cutoff {
-                    if msg
-                        .timestamp()
-                        .to_millis()
-                        .map(|t| t < cutoff)
-                        .unwrap_or(false)
-                    {
-                        return;
-                    }
-                }
                 let payload = match msg.payload() {
                     Some(payload) => payload,
                     None => return,
