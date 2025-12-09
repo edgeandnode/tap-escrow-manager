@@ -44,4 +44,7 @@ pub struct Kafka {
     pub config: BTreeMap<String, String>,
     pub realtime_topic: String,
     pub aggregated_topic: Option<String>,
+    /// Only process receipts with timestamps >= this value (unix millis).
+    /// Used to filter out legacy allocation receipts.
+    pub receipts_cutoff_timestamp: Option<i64>,
 }
