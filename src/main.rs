@@ -133,20 +133,27 @@ async fn main() -> anyhow::Result<()> {
         receivers.extend(escrow_accounts.keys());
         tracing::debug!(receivers = receivers.len());
 
-        let mut indexer_ravs: BTreeMap<Address, u128> = Default::default();
         let mut indexer_receipts: BTreeMap<Address, u128> = Default::default();
         {
-            let allocation_ravs = ravs.borrow();
             let allocation_receipts = receipts.borrow();
             for allocation in &allocations {
-                if let Some(value) = allocation_ravs.get(&allocation.id) {
-                    *indexer_ravs.entry(allocation.indexer).or_default() += *value;
-                }
                 if let Some(value) = allocation_receipts.get(&allocation.id) {
                     *indexer_receipts.entry(allocation.indexer).or_default() += *value;
                 }
             }
         }
+        // RAVs are keyed by receiver (indexer address), not allocation.
+        // Filter to only include RAVs for indexers with active Horizon allocations.
+        let indexer_ravs: BTreeMap<Address, u128> = {
+            let all_ravs = ravs.borrow();
+            let horizon_indexers: BTreeSet<Address> =
+                allocations.iter().map(|a| a.indexer).collect();
+            all_ravs
+                .iter()
+                .filter(|(indexer, _)| horizon_indexers.contains(*indexer))
+                .map(|(k, v)| (*k, *v))
+                .collect()
+        };
 
         let mut debts: BTreeMap<Address, u128> = Default::default();
         {
