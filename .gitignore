@@ -5,3 +5,5 @@
 ## Rust
 **/*.rs.bk
 /target/
+
+config.json

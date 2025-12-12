@@ -38,6 +38,10 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
         .context("failed to load config")?;
 
+    if config.dry_run {
+        tracing::info!("dry run mode enabled, contract calls will be skipped");
+    }
+
     let payer = PrivateKeySigner::from_bytes(&config.secret_key)?;
     tracing::info!(payer = %payer.address());
     let contracts = Contracts::new(
@@ -73,6 +77,10 @@ async fn main() -> anyhow::Result<()> {
             if authorized {
                 continue;
             }
+            if config.dry_run {
+                tracing::info!(signer = %signer.address(), "dry run: skipping authorize_signer");
+                continue;
+            }
             match contracts.authorize_signer(signer).await {
                 Ok(()) => tracing::info!(signer = %signer.address(), "authorized"),
                 Err(err) => tracing::error!("failed to authorize signer: {err:#}"),
@@ -84,12 +92,19 @@ async fn main() -> anyhow::Result<()> {
     let expected_allowance = config.grt_allowance as u128 * GRT;
     tracing::info!(allowance = allowance as f64 * 1e-18);
     if allowance < expected_allowance {
-        contracts
-            .approve(expected_allowance)
-            .await
-            .context("approve")?;
-        allowance = contracts.allowance().await?;
-        tracing::info!(allowance = allowance as f64 * 1e-18);
+        if config.dry_run {
+            tracing::info!(
+                expected_allowance = expected_allowance as f64 * 1e-18,
+                "dry run: skipping approve"
+            );
+        } else {
+            contracts
+                .approve(expected_allowance)
+                .await
+                .context("approve")?;
+            allowance = contracts.allowance().await?;
+            tracing::info!(allowance = allowance as f64 * 1e-18);
+        }
     }
 
     let signers: Vec<Address> = signers.into_iter().map(|s| s.address()).collect();
@@ -193,6 +208,16 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 reduce_adjustments(adjustments)
             };
+            if config.dry_run {
+                for (receiver, adjustment) in &adjustments {
+                    tracing::info!(
+                        ?receiver,
+                        adjustment_grt = (*adjustment as f64) / (GRT as f64),
+                        "dry run: skipping deposit"
+                    );
+                }
+                continue;
+            }
             let tx_block = match contracts.deposit_many(adjustments).await {
                 Ok(block) => block,
                 Err(deposit_err) => {

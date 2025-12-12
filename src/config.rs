@@ -10,6 +10,9 @@ use serde_with::serde_as;
 pub struct Config {
     /// Authorize signers on startup.
     pub authorize_signers: bool,
+    /// Skip contract calls (for testing/debugging).
+    #[serde(default)]
+    pub dry_run: bool,
     /// Table of minimum debts by indexer. This can be used, for example, to account for receipts
     /// missing from the kafka topic.
     pub debts: BTreeMap<Address, u64>,
