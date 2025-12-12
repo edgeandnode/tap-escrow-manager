@@ -313,10 +313,13 @@ mod ravs {
                         return;
                     }
                 };
-                let record = match parse_record(msg) {
-                    Ok(record) => record,
+                let record = match parse_record(&msg) {
+                    Ok(ParseResult::V2(record)) => record,
+                    Ok(ParseResult::V1) => return,
                     Err(record_parse_err) => {
-                        tracing::error!(%record_parse_err);
+                        let key = msg.key().map(String::from_utf8_lossy);
+                        let payload = msg.payload().map(String::from_utf8_lossy);
+                        tracing::error!(%record_parse_err, ?key, ?payload);
                         return;
                     }
                 };
@@ -324,7 +327,7 @@ mod ravs {
                     return;
                 }
                 tx.send_if_modified(|map| {
-                    match map.entry(record.receiver) {
+                    match map.entry(record.allocation) {
                         std::collections::btree_map::Entry::Vacant(entry) => {
                             entry.insert(record.value);
                         }
@@ -343,18 +346,31 @@ mod ravs {
 
     struct Record {
         signer: Address,
-        receiver: Address,
+        allocation: Address,
         value: u128,
     }
 
-    fn parse_record(msg: rdkafka::message::BorrowedMessage) -> anyhow::Result<Record> {
+    enum ParseResult {
+        V2(Record),
+        V1,
+    }
+
+    fn parse_record(msg: &rdkafka::message::BorrowedMessage) -> anyhow::Result<ParseResult> {
         let key = String::from_utf8_lossy(msg.key().context("missing key")?);
         let payload = String::from_utf8_lossy(msg.payload().context("missing payload")?);
-        let (signer, receiver) = key.split_once(':').context("malformed key")?;
-        Ok(Record {
+        let (signer, id) = key.split_once(':').context("malformed key")?;
+        // V1: allocation ID is 20 bytes (42 chars with 0x prefix)
+        // V2: collection ID is 32 bytes (66 chars with 0x prefix)
+        if id.len() == 42 {
+            return Ok(ParseResult::V1);
+        }
+        anyhow::ensure!(id.len() == 66, "invalid id length: {}", id.len());
+        // Allocation ID is the last 20 bytes of collection ID
+        let allocation = &id[26..]; // skip "0x" + 24 zero chars (12 bytes padding)
+        Ok(ParseResult::V2(Record {
             signer: signer.parse()?,
-            receiver: receiver.parse()?,
+            allocation: allocation.parse()?,
             value: payload.parse()?,
-        })
+        }))
     }
 }
