@@ -66,6 +66,11 @@ mod receipts {
                     .with_context(|| anyhow!("missing payload at {partition} {offset}"))?;
                 let msg = IndexerFeesHourlyProtobuf::decode(payload)?;
                 latest_aggregated_timestamp = latest_aggregated_timestamp.max(msg.timestamp);
+                if let Some(cutoff) = config.aggregated_cutoff_timestamp {
+                    if msg.timestamp < cutoff {
+                        continue;
+                    }
+                }
                 for aggregation in &msg.aggregations {
                     if !signers.contains(&Address::from_slice(&aggregation.signer)) {
                         continue;

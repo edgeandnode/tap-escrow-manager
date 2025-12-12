@@ -47,4 +47,7 @@ pub struct Kafka {
     pub config: BTreeMap<String, String>,
     pub realtime_topic: String,
     pub aggregated_topic: Option<String>,
+    /// Cutoff timestamp (unix milliseconds) for aggregated topic data.
+    /// Aggregated records older than this are ignored.
+    pub aggregated_cutoff_timestamp: Option<i64>,
 }
