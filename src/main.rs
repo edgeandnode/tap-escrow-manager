@@ -93,7 +93,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(allowance = allowance as f64 * 1e-18);
     if allowance < expected_allowance {
         if config.dry_run {
-            tracing::info!(expected_allowance = expected_allowance as f64 * 1e-18, "dry run: skipping approve");
+            tracing::info!(
+                expected_allowance = expected_allowance as f64 * 1e-18,
+                "dry run: skipping approve"
+            );
         } else {
             contracts
                 .approve(expected_allowance)
