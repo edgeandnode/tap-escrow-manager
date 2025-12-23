@@ -51,6 +51,7 @@ impl Contracts {
         graph_tally_collector: Address,
     ) -> Self {
         let provider = ProviderBuilder::new()
+            .with_simple_nonce_management()
             .wallet(EthereumWallet::from(payer))
             .connect_http(chain_rpc);
         let payer = provider.default_signer_address();
