@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 alloy = { version = "1.0.3", features = ["contract", "signer-local"] }
 anyhow = "1.0.75"
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+lazy_static = "1.4"
+prometheus = { version = "0.14", default-features = false }
 chrono = { version = "0.4.34", default-features = false, features = ["clock"] }
 futures-util = "0.3.30"
 prost = "0.13.2"
@@ -23,6 +26,7 @@ thegraph-client-subgraphs = "0.2.0"
 titorelli = { git = "https://github.com/edgeandnode/titorelli.git", rev = "4c14fc1" }
 tokio = { version = "1.32.0", default-features = false, features = [
     "macros",
+    "net",
     "rt-multi-thread",
     "signal",
     "time",
