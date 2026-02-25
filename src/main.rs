@@ -11,13 +11,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use axum::{http::StatusCode, routing, Router};
-use prometheus::Encoder as _;
-
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{anyhow, Context as _};
+use axum::{http::StatusCode, routing, Router};
 use config::Config;
 use contracts::Contracts;
+use prometheus::Encoder as _;
 use subgraphs::{active_allocations, authorized_signers, escrow_accounts};
 use thegraph_client_subgraphs::Client as SubgraphClient;
 use tokio::{
