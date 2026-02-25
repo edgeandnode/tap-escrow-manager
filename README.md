@@ -1,23 +1,33 @@
 # tap-escrow-manager
 
-This service maintains TAP escrow balances on behalf of a gateway sender.
+This service maintains TAPv2 / GraphTally escrow balances on behalf of a gateway sender.
 
-The following data sources are monitored to guide the allocation of GRT into the [TAP Escrow contract](https://github.com/semiotic-ai/timeline-aggregation-protocol-contracts):
+The following data sources are monitored to guide the allocation of GRT into the [Graph Horizon Escrow contract](https://github.com/graphprotocol/contracts/blob/main/packages/horizon/contracts/payments/PaymentsEscrow.sol):
 
-- [Graph Network Subgraph](https://github.com/graphprotocol/graph-network-subgraph)
-- [TAP Subgraph](https://github.com/semiotic-ai/timeline-aggregation-protocol-subgraph)
-- The gateway's Kafka topic for indexer query reports, to account for outstanding debts from receipts sent to indexers
+- [Graph Network Subgraph](https://github.com/graphprotocol/graph-network-subgraph) - for active allocations, escrow accounts, and authorized signers
+- Kafka topics for receipts and RAVs - to track outstanding debts from query fees
 
 # Configuration
 
 Configuration options are set via a single JSON file. The structure of the file is defined in [src/config.rs](src/config.rs).
 
+## Key Options
+
+| Field | Description |
+|-------|-------------|
+| `authorize_signers` | If `true`, automatically authorize signers on startup |
+| `dry_run` | If `true`, skip contract calls (useful for testing) |
+| `port_metrics` | Port for Prometheus metrics server (default: 9090) |
+| `update_interval_seconds` | Polling interval for the main loop |
+
+## Sender and Signers
+
 The sender address used for tap-escrow-manager expects authorizedSigners:
 
-- Sender: Requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
-- Authorized signer: Used by the gateway and tap-aggregator to sign receipts and RAVs
+- **Sender**: Requires ETH for transaction gas and GRT to allocate into TAP escrow balances for paying indexers
+- **Authorized signer**: Used by the gateway and tap-aggregator to sign receipts and RAVs
 
-The tap-escrow-manager will automatically setup authorized signers set in the configuration on startup. This requires the secret keys for the authorized signer wallets to be present in the `signers` config field.
+When `authorize_signers` is set to `true`, the tap-escrow-manager will automatically setup authorized signers on startup. This requires the secret keys for the authorized signer wallets to be present in the `signers` config field.
 
 ## Setting up Authorized Signers Manually
 
@@ -78,10 +88,30 @@ echo "node generateProof.js <authorizedSignerPrivateKey> <senderAddress> <chainI
 
 # Logs
 
-Log levels are controlled by the `RUST_LOG` environment variable ([details](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)).
+Log levels are controlled by the `RUST_LOG` environment variable ([details](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)).
 
-example: `RUST_LOG=info,tap_escrow_manager=debug cargo run -- config.json`
+Example: `RUST_LOG=info,tap_escrow_manager=debug cargo run -- config.json`
 
-# Useful Commands
+# Metrics
 
-- `rpk group seek tap-escrow-manager-mainnet --to $unix_timestamp`
+Prometheus metrics are exposed on a separate HTTP server. Configure the port via `port_metrics` in the config file (default: 9090).
+
+```bash
+curl http://localhost:9090/metrics
+```
+
+### Available Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `escrow_total_debt_grt` | Gauge | Total outstanding debt across all receivers |
+| `escrow_total_balance_grt` | Gauge | Total escrow balance across all receivers |
+| `escrow_total_adjustment_grt` | Gauge | Total GRT deposited in the last cycle |
+| `escrow_receiver_count` | Gauge | Number of receivers being tracked |
+| `escrow_loop_duration_seconds` | Histogram | Duration of each polling cycle |
+| `escrow_debt_grt{receiver}` | Gauge | Outstanding debt per receiver |
+| `escrow_balance_grt{receiver}` | Gauge | Escrow balance per receiver |
+| `escrow_adjustment_grt{receiver}` | Gauge | Last adjustment per receiver |
+| `escrow_deposit_ok` | Counter | Successful deposit transactions |
+| `escrow_deposit_err` | Counter | Failed deposit transactions |
+| `escrow_deposit_duration` | Histogram | Deposit transaction duration |
