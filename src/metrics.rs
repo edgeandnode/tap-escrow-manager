@@ -1,9 +1,7 @@
 use lazy_static::lazy_static;
 use prometheus::{
-    core::{MetricVec, MetricVecBuilder},
-    register_gauge, register_gauge_vec, register_histogram, register_histogram_vec,
-    register_int_counter, register_int_counter_vec, register_int_gauge, Gauge, GaugeVec, Histogram,
-    HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    register_gauge, register_gauge_vec, register_histogram, register_int_counter,
+    register_int_gauge, Gauge, GaugeVec, Histogram, IntCounter, IntGauge,
 };
 
 lazy_static! {
@@ -104,54 +102,4 @@ impl ResponseMetrics {
         metrics.err.inc();
         metrics
     }
-}
-
-#[derive(Clone)]
-pub struct ResponseMetricVecs {
-    pub ok: IntCounterVec,
-    pub err: IntCounterVec,
-    pub duration: HistogramVec,
-}
-
-impl ResponseMetricVecs {
-    pub fn new(prefix: &str, description: &str, labels: &[&str]) -> Self {
-        Self {
-            ok: register_int_counter_vec!(
-                &format!("{prefix}_ok"),
-                &format!("{description} success count"),
-                labels,
-            )
-            .unwrap(),
-            err: register_int_counter_vec!(
-                &format!("{prefix}_err"),
-                &format!("{description} error count"),
-                labels,
-            )
-            .unwrap(),
-            duration: register_histogram_vec!(
-                &format!("{prefix}_duration"),
-                &format!("{description} duration"),
-                labels,
-            )
-            .unwrap(),
-        }
-    }
-
-    pub fn check<T, E>(&self, label_values: &[&str], result: &Result<T, E>) {
-        match &result {
-            Ok(_) => with_metric(&self.ok, label_values, |c| c.inc()),
-            Err(_) => with_metric(&self.err, label_values, |c| c.inc()),
-        };
-    }
-}
-
-pub fn with_metric<T, F, B>(metric_vec: &MetricVec<B>, label_values: &[&str], f: F) -> Option<T>
-where
-    B: MetricVecBuilder,
-    F: Fn(B::M) -> T,
-{
-    metric_vec
-        .get_metric_with_label_values(label_values)
-        .ok()
-        .map(f)
 }

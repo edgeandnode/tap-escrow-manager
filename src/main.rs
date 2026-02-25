@@ -6,12 +6,13 @@ mod subgraphs;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
+    io::Write as _,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::{Duration, Instant},
 };
 
 use axum::{http::StatusCode, routing, Router};
+use prometheus::Encoder as _;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{anyhow, Context as _};
