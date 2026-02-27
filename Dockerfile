@@ -2,6 +2,7 @@ FROM rust:1-slim-bookworm AS build
 RUN apt-get update && apt-get install -y \
   clang \
   cmake \
+  libcurl4-openssl-dev \
   librdkafka-dev \
   libsasl2-dev \
   libssl-dev \

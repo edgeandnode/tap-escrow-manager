@@ -40,6 +40,13 @@ pub struct Config {
     pub signers: Vec<B256>,
     /// Period of the subgraph polling cycle
     pub update_interval_seconds: u32,
+    /// Port for metrics server
+    #[serde(default = "default_port_metrics")]
+    pub port_metrics: u16,
+}
+
+fn default_port_metrics() -> u16 {
+    9090
 }
 
 #[derive(Debug, Deserialize)]

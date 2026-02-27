@@ -1,20 +1,26 @@
 mod config;
 mod contracts;
 mod kafka;
+mod metrics;
 mod subgraphs;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    time::Duration,
+    io::Write as _,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::{Duration, Instant},
 };
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{anyhow, Context as _};
+use axum::{http::StatusCode, routing, Router};
 use config::Config;
 use contracts::Contracts;
+use prometheus::Encoder as _;
 use subgraphs::{active_allocations, authorized_signers, escrow_accounts};
 use thegraph_client_subgraphs::Client as SubgraphClient;
 use tokio::{
+    net::TcpListener,
     select,
     time::{interval, MissedTickBehavior},
 };
@@ -115,6 +121,22 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to start RAVs consumer")?;
 
+    // Host metrics on a separate server with a port that isn't open to public requests.
+    let port_metrics = config.port_metrics;
+    tokio::spawn(async move {
+        let router = Router::new().route("/metrics", routing::get(handle_metrics));
+        let metrics_listener = TcpListener::bind(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            port_metrics,
+        ))
+        .await
+        .expect("failed to bind metrics server");
+        tracing::info!(port_metrics, "metrics server started");
+        axum::serve(metrics_listener, router.into_make_service())
+            .await
+            .expect("metrics server failed");
+    });
+
     let mut interval = interval(Duration::from_secs(config.update_interval_seconds as u64));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -124,6 +146,7 @@ async fn main() -> anyhow::Result<()> {
             _ = tokio::signal::ctrl_c() => anyhow::bail!("exit"),
             _ = sigterm.recv() => anyhow::bail!("exit"),
         };
+        let loop_start = Instant::now();
 
         let allocations = match active_allocations(&mut network_subgraph).await {
             Ok(allocations) => allocations,
@@ -148,6 +171,11 @@ async fn main() -> anyhow::Result<()> {
         receivers.extend(escrow_accounts.keys());
         tracing::debug!(receivers = receivers.len());
 
+        metrics::METRICS.receiver_count.set(receivers.len() as i64);
+        metrics::METRICS
+            .total_balance_grt
+            .set(escrow_accounts.values().sum::<u128>() as f64 / GRT as f64);
+
         let mut indexer_ravs: BTreeMap<Address, u128> = Default::default();
         {
             let allocation_ravs = ravs.borrow();
@@ -164,14 +192,28 @@ async fn main() -> anyhow::Result<()> {
             for receiver in &receivers {
                 let receipts = *receipts.get(receiver).unwrap_or(&0);
                 let ravs = *indexer_ravs.get(receiver).unwrap_or(&0);
-                debts.insert(*receiver, u128::max(receipts, ravs));
+                let debt = u128::max(receipts, ravs);
+                debts.insert(*receiver, debt);
                 tracing::info!(
                     %receiver,
                     receipts = %format!("{:.6}", receipts as f64 * 1e-18),
                     ravs = %format!("{:.6}", ravs as f64 * 1e-18),
                 );
+                let receiver_str = format!("{receiver:?}");
+                let balance = escrow_accounts.get(receiver).copied().unwrap_or(0);
+                metrics::METRICS
+                    .balance_grt
+                    .with_label_values(&[&receiver_str])
+                    .set(balance as f64 / GRT as f64);
+                metrics::METRICS
+                    .debt_grt
+                    .with_label_values(&[&receiver_str])
+                    .set(debt as f64 / GRT as f64);
             }
         };
+        metrics::METRICS
+            .total_debt_grt
+            .set(debts.values().sum::<u128>() as f64 / GRT as f64);
 
         let adjustments: Vec<(Address, u128)> = receivers
             .into_iter()
@@ -192,12 +234,20 @@ async fn main() -> anyhow::Result<()> {
                     debt_grt = (debt as f64) / (GRT as f64),
                     adjustment_grt = (adjustment as f64) / (GRT as f64),
                 );
+                let receiver_str = format!("{receiver:?}");
+                metrics::METRICS
+                    .adjustment_grt
+                    .with_label_values(&[&receiver_str])
+                    .set(adjustment as f64 / GRT as f64);
                 Some((receiver, adjustment))
             })
             .collect();
 
         let total_adjustment: u128 = adjustments.iter().map(|(_, a)| a).sum();
         tracing::info!(total_adjustment_grt = ((total_adjustment as f64) * 1e-18).ceil() as u64);
+        metrics::METRICS
+            .total_adjustment_grt
+            .set(total_adjustment as f64 / GRT as f64);
         if total_adjustment > 0 {
             let adjustments = if total_adjustment <= MAX_ADJUSTMENT {
                 adjustments
@@ -214,9 +264,19 @@ async fn main() -> anyhow::Result<()> {
                 }
                 continue;
             }
-            let tx_block = match contracts.deposit_many(adjustments).await {
-                Ok(block) => block,
+            let deposit_start = Instant::now();
+            let deposit_result = contracts.deposit_many(adjustments).await;
+            metrics::METRICS
+                .deposit
+                .duration
+                .observe(deposit_start.elapsed().as_secs_f64());
+            let tx_block = match deposit_result {
+                Ok(block) => {
+                    metrics::METRICS.deposit.ok.inc();
+                    block
+                }
                 Err(deposit_err) => {
+                    metrics::METRICS.deposit.err.inc();
                     tracing::error!("{:#}", deposit_err.context("deposit"));
                     continue;
                 }
@@ -231,6 +291,10 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!("adjustments complete");
         }
+
+        metrics::METRICS
+            .loop_duration
+            .observe(loop_start.elapsed().as_secs_f64());
     }
 }
 
@@ -260,6 +324,19 @@ fn reduce_adjustments(adjustments: Vec<(Address, u128)>) -> Vec<(Address, u128)>
             }
         }
     }
+}
+
+async fn handle_metrics() -> impl axum::response::IntoResponse {
+    let encoder = prometheus::TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = Vec::new();
+    if let Err(metrics_encode_err) = encoder.encode(&metric_families, &mut buffer) {
+        tracing::error!(%metrics_encode_err);
+        buffer.clear();
+        write!(&mut buffer, "Failed to encode metrics").unwrap();
+        return (StatusCode::INTERNAL_SERVER_ERROR, String::new());
+    }
+    (StatusCode::OK, String::from_utf8(buffer).unwrap())
 }
 
 #[cfg(test)]
