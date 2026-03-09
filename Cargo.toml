@@ -23,7 +23,7 @@ serde_json = { version = "1.0.108", features = ["raw_value"] }
 serde_with = "3.4.0"
 snmalloc-rs = "0.3.4"
 thegraph-client-subgraphs = "0.3.2"
-titorelli = { git = "https://github.com/edgeandnode/titorelli.git", rev = "4c14fc1" }
+titorelli = { git = "https://github.com/edgeandnode/titorelli.git", rev = "457b469c69c5a1cbf78e6dd9b8ca9a15bd8b1bd2" }
 tokio = { version = "1.32.0", default-features = false, features = [
     "macros",
     "net",
