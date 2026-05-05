@@ -1,3 +1,5 @@
+ARCHIVED: use https://github.com/graphprotocol/graph-tally
+---
 # tap-escrow-manager
 
 This service maintains TAPv2 / GraphTally escrow balances on behalf of a gateway sender.
