@@ -2851,7 +2851,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
 dependencies = [
  "bytes",
- "prost-derive",
+ "prost-derive 0.13.5",
+]
+
+[[package]]
+name = "prost"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
+dependencies = [
+ "bytes",
+ "prost-derive 0.14.3",
 ]
 
 [[package]]
@@ -2862,6 +2872,19 @@ checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "prost-derive"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
+dependencies = [
+ "anyhow",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3034,6 +3057,25 @@ name = "rdkafka"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14b52c81ac3cac39c9639b95c20452076e74b8d9a71bc6fc4d83407af2ea6fff"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "libc",
+ "log",
+ "rdkafka-sys",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slab",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rdkafka"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f1856d72dbbbea0d2a5b2eaf6af7fb3847ef2746e883b11781446a51dbc85c0"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -3841,8 +3883,8 @@ dependencies = [
  "futures-util",
  "lazy_static",
  "prometheus",
- "prost",
- "rdkafka",
+ "prost 0.13.5",
+ "rdkafka 0.37.0",
  "reqwest",
  "serde",
  "serde_json",
@@ -4028,14 +4070,14 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "titorelli"
 version = "0.1.0"
-source = "git+https://github.com/edgeandnode/titorelli.git?rev=4c14fc1#4c14fc18cba20c33cf4f07232c25883196a3bdd4"
+source = "git+https://github.com/edgeandnode/titorelli.git?rev=457b469c69c5a1cbf78e6dd9b8ca9a15bd8b1bd2#457b469c69c5a1cbf78e6dd9b8ca9a15bd8b1bd2"
 dependencies = [
  "anyhow",
  "bs58",
  "chrono",
  "futures-util",
- "prost",
- "rdkafka",
+ "prost 0.14.3",
+ "rdkafka 0.38.0",
  "serde",
  "serde_json",
  "snmalloc-rs",
