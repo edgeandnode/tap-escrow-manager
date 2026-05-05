@@ -17,7 +17,7 @@ rdkafka = { version = "0.37.0", features = [
     "gssapi",
     "tracing",
 ] }
-reqwest = "0.12.5"
+reqwest = "0.13.0"
 serde = { version = "1.0.190", features = ["derive"] }
 serde_json = { version = "1.0.108", features = ["raw_value"] }
 serde_with = "3.4.0"
